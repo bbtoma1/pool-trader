@@ -1,0 +1,10 @@
+{
+  "name": "웅덩이 트레이더",
+  "short_name": "웅덩이",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0e141b",
+  "theme_color": "#0f6b6b",
+  "lang": "ko",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

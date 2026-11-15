@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f6b6b">
+<title>웅덩이 트레이더</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="row1">
+    <h1>웅덩이 트레이더</h1>
+    <span id="fresh" class="chip">불러오는 중</span>
+    <button id="refresh" class="icon" type="button" aria-label="새로고침">↻</button>
+  </div>
+  <div class="seg" id="lens" aria-label="관점">
+    <button data-l="pool" class="on" type="button">웅덩이</button>
+    <button data-l="doki" type="button">도키</button>
+    <button data-l="both" type="button">통합</button>
+  </div>
+  <div class="seg" id="mkt" role="tablist" aria-label="시장">
+    <button data-m="ALL" class="on" type="button">전체</button>
+    <button data-m="US" type="button">미국</button>
+    <button data-m="KR" type="button">국내</button>
+  </div>
+</header>
+
+<main id="view" aria-live="polite"></main>
+
+<nav class="tabs" id="tabs">
+  <button data-t="today" class="on" type="button">오늘</button>
+  <button data-t="stock" type="button">종목</button>
+  <button data-t="verify" type="button">검증</button>
+  <button data-t="acct" type="button">내 계좌</button>
+</nav>
+
+<script src="engine.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+# 비밀·개인 파일
+.env
+.env.*
+config.json
+*.pem
+*.key
+*.db
+*.sqlite
+.wrangler/
+node_modules/
+
+# 생성물(배포 워크플로가 만들고 이전 배포본에서 이어받는다)
+_site/
+__pycache__/
+data/px/
+data/manifest.json
+data/fund.json
+data/fund_status.json
+data/corp_codes.json
+
+# 개발 도구 설정
+.claude/
