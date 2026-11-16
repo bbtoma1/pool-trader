@@ -227,10 +227,115 @@
       + '<div class="hint">종합 ' + (r.total == null ? '-' : (r.total > 0 ? '+' : '') + r.total.toFixed(2)) + ' · 지표 확보율 ' + Math.round(r.coverage * 100) + '%. 점수만으로 국면을 기계적으로 정하지 않고 유동성·경기 중심 규칙으로 분류했습니다.</div>'
       + '<details><summary>지표별 근거 보기</summary>' + ev + '<h3 style="font-size:14px">확인 불가 항목</h3><div class="hint">' + esc(r.unavailable.join(' · ')) + '</div></details></div>';
   }
+  /* ---- 시황 브리핑(AI용 프롬프트 + 앱 데이터 스냅샷) ----
+   * 앱은 AI를 실행하지 않는다. data/briefing_*.md 의 프롬프트에 앱이 가진 데이터를 붙여, 복사해서 AI 채팅에 붙여넣게 한다. */
+  S.briefHold = false; S.briefCache = {};
+  var BRIEF = { kr: { file: 'data/briefing_kr.md', title: '국내 마감 브리핑', when: '한국 장 마감(15:30) 후에 읽는 브리핑' }, us: { file: 'data/briefing_us.md', title: '미국 새벽 브리핑', when: '미국 장 마감 후, 한국 개장 전에 읽는 브리핑' } };
+  function kstStamp() { return new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour12: false }); }
+  function kstHour() { return Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Seoul', hour: 'numeric', hour12: false }).format(new Date())) % 24; }
+  function sLine(label, sym, yl) {
+    var s = S.ser[sym]; if (!s) return '- ' + label + ': 확인 불가';
+    var n = s.c.length - 1, v = s.c[n];
+    function f(c) { return c == null ? '-' : yl ? (c > 0 ? '+' : '') + c.toFixed(2) + '%p' : (c > 0 ? '+' : '') + (c * 100).toFixed(2) + '%'; }
+    return '- ' + label + ' ' + v.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + (yl ? '%' : '') + ' (' + s.d[n] + ' 종가) · 전일 대비 ' + f(chgBy(sym, 1, yl)) + ' · 1개월 ' + f(chgBy(sym, 30, yl));
+  }
+  function briefHoldings() {
+    var a = loadAcct(), log = loadLog(), rows = [];
+    S.uni.watch.forEach(function (w) {
+      var q = holdQty(w.sym, a); if (!(q > 0)) return;
+      var buys = log.filter(function (x) { return x.sym === w.sym && x.side === 'buy'; }).sort(function (p, r) { return p.date < r.date ? -1 : 1; }).map(function (x) { return fmtN(x.px) + ' × ' + x.qty; });
+      var base = Number(a.hold[w.sym]) || 0;
+      rows.push('| ' + w.name + ' | ' + w.sym.split('.')[0] + ' | ' + (buys.length ? buys.join(', ') : '') + (base ? (buys.length ? ', ' : '') + '(기록 이전 보유 ' + base + '주, 매수가 미입력)' : '') + ' | ' + q + ' | |');
+    });
+    if (!rows.length) return null;
+    return '| 종목 | 종목코드 | 매수가 × 수량 (분할 매수면 모두) | 총 수량 | 평균단가 |\n|---|---|---|---|---|\n' + rows.join('\n');
+  }
+  function briefSnapshot(kind) {
+    var L = [], k = S.ser['^KS11'], q = S.ser['^KQ11'], r = regimes().KR, cx = S.mk.KR ? Engine.marketAt(S.mk.KR, k.d[k.d.length - 1]) : null;
+    L.push('# [앱 데이터 스냅샷] 우기\'s 주식 트레이더 · 생성 ' + kstStamp() + ' (KST)');
+    L.push('※ 아래는 앱이 가진 참고 데이터입니다. 출처는 야후 파이낸스(비공식, 지연·오차 가능)·DART·앱 자체 계산이며, 직접 확인하기 전에는 [확인] 태그를 붙이지 마세요([보도-단일]이나 [사용자 첨부] 수준으로 취급). 종가는 수정주가 기준일 수 있고, 한국 종목은 정규장 종가와 NXT 포함 최종가가 다를 수 있으니 기준을 확인하세요.');
+    L.push('');
+    if (kind === 'kr') {
+      L.push('## 국내 지수 (최신 종가)');
+      L.push(sLine('코스피', '^KS11', false)); L.push(sLine('코스닥', '^KQ11', false));
+      if (cx) L.push('- 코스피 52주 고점 대비 낙폭 ' + (cx.dd * 100).toFixed(1) + '% · 20일 실현변동성 백분위 ' + (cx.pct == null ? '확인 불가' : Math.round(cx.pct * 100)) + ' · 국내 섹터 ETF 중 52주 고점 -10%↓ 비율 ' + (cx.brd == null ? '확인 불가' : Math.round(cx.brd * 100) + '%') + ' (앱 자체 계산)');
+      L.push('- 거래대금·상승/하락 종목 수·20/60/120일선 위치: 앱 미수집 → [캡처 필요]');
+      L.push('');
+    }
+    L.push('## 글로벌 변수 (앱이 가진 가장 최근 종가, 기준일 병기)');
+    [['VIX', '^VIX'], ['필라델피아 반도체(SOX)', '^SOX']].forEach(function (x) { L.push(sLine(x[0], x[1], false)); });
+    [['미 10년물 금리', '^TNX'], ['미 5년물 금리', '^FVX'], ['미 3개월물 금리', '^IRX']].forEach(function (x) { L.push(sLine(x[0], x[1], true)); });
+    [['달러인덱스', 'DX-Y.NYB'], ['원/달러', 'KRW=X'], ['WTI 원유', 'CL=F'], ['금', 'GC=F'], ['구리', 'HG=F']].forEach(function (x) { L.push(sLine(x[0], x[1], false)); });
+    if (kind === 'us') L.push('- 미국 3대 지수·S&P500·다우운송·러셀2000, 시간외·프리마켓, 코스피200 야간선물, 경제지표(예상·실제·이전): 앱 미수집 → [캡처 필요] 또는 검색');
+    L.push('');
+    if (r) {
+      L.push('## 앱의 시장 국면 판별 (규칙 기반, 과거 검증 전이라 참고용)');
+      L.push('- 국내 시장: ' + r.name + ' · 신뢰도 ' + r.confidence + ' · 전환 가능성 ' + r.transition + ' · 한 달 전 ' + r.prevName + ' (기준 ' + r.date + ')');
+      L.push('- 영역 점수(-2~+2): ' + r.areas.map(function (a) { return a.name + ' ' + (a.score == null ? '유보' : a.score.toFixed(2)); }).join(' / '));
+      L.push('- 주요 근거: ' + (r.drivers.length ? r.drivers.join(' · ') : '뚜렷한 근거 없음'));
+      L.push('');
+    }
+    var evs = Object.keys(S.ev).map(function (s) { return S.ev[s]; }), fresh = evs.filter(function (d) { return d.fresh; }), ong = evs.filter(function (d) { return d.age !== null && !d.fresh; }).sort(function (p, qq) { return qq.ev.score - p.ev.score; });
+    L.push('## 앱 신호 현황 (' + LENS[S.lens] + ' 관점 점수, 투자 권유 아님·과거 검증에서 단순 보유를 뚜렷하게 이기지 못함)');
+    L.push('- 새로 켜진 신호(11거래일 이내): ' + (fresh.length ? fresh.map(function (d) { return d.w.name + ' ' + d.ev.tier + '차(' + Math.round(d.ev.score) + '점)'; }).join(', ') : '없음'));
+    L.push('- 지속 중 ' + ong.length + '종목 (점수 상위: ' + ong.slice(0, 5).map(function (d) { return d.w.name + ' ' + Math.round(d.ev.score) + '점'; }).join(', ') + ')');
+    L.push('');
+    if (S.trk && S.trk.items) {
+      var lim = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10), it = S.trk.items.filter(function (x) { return x.date >= lim && (x.kind === 'major' || (x.kind === 'filing' && x.tone !== 'info')); }).slice(0, 14);
+      L.push('## 최근 7일 주요 공시·5% 대량보유 (DART, 제목 기반 자동 분류라 틀릴 수 있음)');
+      if (it.length) it.forEach(function (x) { L.push('- ' + x.date + ' ' + x.name + ' · ' + (x.kind === 'major' ? '5% 대량보유 ' + x.person + ' ' + x.rate + '%' : '[' + x.tag + '] ' + x.title)); }); else L.push('- 해당 없음');
+      L.push('');
+    }
+    L.push('## 앱이 갖고 있지 않은 것 → 프롬프트의 [캡처 필요] 목록으로 정리해 주세요');
+    L.push('- 투자자별 수급(외국인·기관·개인), 선물·옵션·프로그램, 베이시스, 신용융자·공매도·대차, 업종 등락, 거래대금, NXT 포함 최종가' + (kind === 'us' ? ', 미국 시간외·야간선물' : ''));
+    return L.join('\n');
+  }
+  function briefText(kind) { // 프롬프트 본문 + (선택) 내 보유종목 + 앱 스냅샷
+    var base = S.briefCache[kind]; if (base == null) return Promise.resolve(null);
+    var hold = S.briefHold ? briefHoldings() : null, mid;
+    if (S.briefHold && hold) mid = '\n\n---\n\n# [내 보유종목 입력 (앱에서 생성)]\n※ 위 [내 입력]의 예시 행은 무시하고 아래 표를 보유종목 표로 사용한다. 평균단가·원가 비중은 AI가 계산·검산한다.\n\n' + hold;
+    else if (S.briefHold) mid = '\n\n---\n\n※ 보유종목: 앱에 입력된 보유 수량이 없어 시장 분석만 작성한다.';
+    else mid = '\n\n---\n\n※ 보유종목은 입력하지 않았다. 시장 분석만 작성한다(예시 행은 무시).';
+    return Promise.resolve(base + mid + '\n\n---\n\n' + briefSnapshot(kind));
+  }
+  function loadBrief(kind) {
+    if (S.briefCache[kind] != null) return Promise.resolve();
+    return fetch(BRIEF[kind].file, { cache: 'no-cache' }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); }).then(function (t) { S.briefCache[kind] = t; });
+  }
+  function briefCard() {
+    var h = kstHour(), rec = h >= 16 || h < 1 ? 'kr' : (h >= 6 && h < 9 ? 'us' : '');
+    return '<h2>시황 브리핑</h2><p class="hint">AI 채팅(ChatGPT·Claude·Gemini 등)에 붙여넣으면 오늘의 시황 브리핑을 써 줍니다. 앱은 AI를 대신 실행하지 않고, <b>프롬프트에 앱이 가진 데이터를 자동으로 붙여</b> 드립니다. 결과의 정확성은 보장되지 않으며, 증권사 앱 캡처(투자자별 수급 등)를 함께 첨부하면 더 정확해집니다.</p>'
+      + ['kr', 'us'].map(function (k) {
+        return '<div class="card"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b>' + BRIEF[k].title + '</b>' + (rec === k ? '<span class="badge t1">지금 읽기 좋은 시간</span>' : '') + '</div><div class="hint">' + BRIEF[k].when + '</div>'
+          + '<div class="hbar"><button class="small primary" type="button" data-bcopy="' + k + '">프롬프트 복사</button><button class="small" type="button" data-bprev="' + k + '">미리보기</button></div>'
+          + '<div class="hint" id="bmsg_' + k + '"></div><pre class="brief" id="bprev_' + k + '" hidden></pre></div>';
+      }).join('')
+      + '<div class="card"><label style="display:flex;gap:10px;align-items:center;font-size:14px;color:var(--ink);margin:0"><input id="briefHold" type="checkbox" style="width:24px;min-height:24px"' + (S.briefHold ? ' checked' : '') + '> 내 보유종목 표 포함</label>'
+      + '<div class="hint" style="margin-top:6px">켜면 계좌 탭의 보유 수량과 매매 기록(종목·수량·매수가)이 복사 문구에 들어가고, <b>붙여넣은 AI 서비스로 전송</b>됩니다. 기본은 꺼짐입니다. 다른 사람에게 보낼 때는 꺼 두세요.</div>'
+      + '<div class="hint" style="margin-top:6px">복사 후 열기: <a href="https://chatgpt.com/" target="_blank" rel="noopener">ChatGPT ↗</a> · <a href="https://claude.ai/" target="_blank" rel="noopener">Claude ↗</a> · <a href="https://gemini.google.com/" target="_blank" rel="noopener">Gemini ↗</a></div></div>';
+  }
+  function copyText(text, okCb, failCb) {
+    var done = function () { okCb(); }, fb = function () {
+      try { var ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0'; document.body.appendChild(ta); ta.select(); var ok = document.execCommand('copy'); ta.remove(); ok ? done() : failCb(); } catch (e) { failCb(); }
+    };
+    try { navigator.clipboard.writeText(text).then(done, fb); } catch (e) { fb(); }
+  }
+  document.addEventListener('change', function (e) { if (e.target && e.target.id === 'briefHold') S.briefHold = e.target.checked; });
+  document.addEventListener('click', function (e) {
+    var bc = e.target.closest('[data-bcopy]'), bp = e.target.closest('[data-bprev]'); if (!bc && !bp) return;
+    var kind = (bc || bp).getAttribute(bc ? 'data-bcopy' : 'data-bprev'), msg = document.getElementById('bmsg_' + kind), pre = document.getElementById('bprev_' + kind);
+    if (bp && !pre.hidden) { pre.hidden = true; msg.textContent = ''; return; }
+    msg.textContent = '준비 중…';
+    loadBrief(kind).then(function () { return briefText(kind); }).then(function (t) {
+      if (bp) { pre.textContent = t; pre.hidden = false; msg.textContent = '스크롤해서 전체를 볼 수 있습니다. (' + t.length.toLocaleString('ko-KR') + '자)'; }
+      else copyText(t, function () { msg.textContent = '복사했습니다(' + t.length.toLocaleString('ko-KR') + '자). AI 채팅에 붙여넣으세요.'; }, function () { pre.textContent = t; pre.hidden = false; msg.textContent = '자동 복사가 막혔습니다. 아래 내용을 길게 눌러 전체 선택 후 복사하세요.'; });
+    }).catch(function () { msg.textContent = '프롬프트를 불러오지 못했습니다. 인터넷 연결을 확인하세요.'; });
+  });
+
   function viewMarket() {
     if (!window.Regime) return '<div class="note">국면 모듈을 불러오지 못했습니다.</div>';
     var html = '<h2>시장 국면 판별</h2><p class="hint">가격으로 계산 가능한 지표(국내 지수·섹터와 글로벌 변수)만 사용합니다. 국면은 판단의 출발점이며 매수 점수에는 반영되지 않습니다.</p>';
-    html += regCard('KR');
+    html += regCard('KR') + briefCard();
     // 과거 성과
     var us = regimes().KR;
     if (us) {

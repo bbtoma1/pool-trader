@@ -117,6 +117,7 @@ summary{cursor:pointer;min-height:48px;display:flex;align-items:center;font-weig
 .reg{font-size:21px;font-weight:800;letter-spacing:-.02em;margin:2px 0 6px}
 footer{margin-top:28px;font-size:12px;color:var(--muted)}
 
+pre.brief{white-space:pre-wrap;word-break:break-all;font-family:inherit;font-size:12px;line-height:1.65;max-height:340px;overflow:auto;margin:10px 0 0;padding:12px;background:var(--soft);border:1px solid var(--line);border-radius:12px}
 /* 화면 설정(색 테마) */
 .swatches{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 12px}
 .swatches button{width:46px;height:46px;min-height:46px;padding:0;border-radius:50%;border:3px solid transparent;box-shadow:0 0 0 1px var(--line)}
