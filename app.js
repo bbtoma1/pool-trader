@@ -256,6 +256,39 @@
     return html + '<div class="note">경제 일정, AI 해설, PMI·기업이익·외국인 수급 같은 항목은 자동 수집이 어려워 포함하지 않았습니다. 투자 권유가 아닙니다.</div>' + foot();
   }
 
+  /* ---- 종목 추가·삭제 요청 ----
+   * 앱은 정적 사이트라 목록을 바로 바꿀 수 없다. 요청 문구를 만들어 GitHub Actions 수동 실행에 붙여 넣으면
+   * 저장소의 data/universe.json 이 바뀌고 시세·적정가·공시가 다음 실행부터 따라온다(약 2~3분). */
+  S.addQ = []; S.remQ = []; S.editOpen = false; S.editMsg = '';
+  function repoUrl() {
+    var m = location.hostname.match(/^([^.]+)\.github\.io$/), p = location.pathname.split('/').filter(Boolean)[0];
+    return m && p ? 'https://github.com/' + m[1] + '/' + p + '/actions/workflows/update-data.yml' : null;
+  }
+  function protectedSym(w) { return w.group === 'index' || w.group === 'sector'; }
+  function editPanel() {
+    var url = repoUrl(), addTxt = S.addQ.map(function (x) { return x.code + (x.name ? ':' + x.name : ''); }).join(', '), remTxt = S.remQ.join(', ');
+    var cur = S.uni.watch.filter(function (w) { return w.sym === S.sel; })[0];
+    return '<details id="editBox"' + (S.editOpen ? ' open' : '') + '><summary>＋ 종목 추가·삭제</summary><div class="card">'
+      + '<div class="hint">목록은 저장소에 있어서 앱에서 바로 바뀌지 않습니다. 아래에서 요청 문구를 만든 뒤 GitHub에서 한 번 실행하면 2~3분 뒤 반영됩니다(앱 새로고침).</div>'
+      + '<h3 style="margin-top:12px">추가</h3><div class="form"><div><label for="addCode">종목 코드(6자리)</label><input id="addCode" maxlength="6" autocapitalize="characters" placeholder="예: 035420"></div>'
+      + '<div><label for="addName">이름(선택)</label><input id="addName" maxlength="30" placeholder="비우면 자동"></div></div>'
+      + '<div class="hbar"><button class="small" type="button" id="addQueue">목록에 담기</button></div>'
+      + (S.addQ.length ? '<div class="hint">' + S.addQ.map(function (x, i) { return esc(x.code + (x.name ? ' ' + x.name : '')) + ' <a href="#" data-qdel="' + i + '">빼기</a>'; }).join(' · ') + '</div>' : '')
+      + '<h3 style="margin-top:12px">삭제</h3>'
+      + '<div class="hbar"><button class="small" type="button" id="remQueue"' + (cur && !protectedSym(cur) ? '' : ' disabled') + '>' + (cur ? '지금 보는 "' + esc(cur.name) + '" 삭제 담기' : '삭제할 종목을 먼저 선택') + '</button></div>'
+      + (cur && protectedSym(cur) ? '<div class="hint">지수·섹터 ETF는 검증 비교 기준과 시장 폭 계산에 쓰여서 삭제할 수 없습니다.</div>' : '')
+      + (S.remQ.length ? '<div class="hint">삭제 요청: ' + S.remQ.map(function (c, i) { return esc(c) + ' <a href="#" data-rdel="' + i + '">빼기</a>'; }).join(' · ') + '</div>' : '')
+      + '<div class="hint" id="editMsg">' + esc(S.editMsg) + '</div>'
+      + '<h3 style="margin-top:12px">요청 문구</h3>'
+      + '<label for="addOut">추가 입력칸에 붙여넣을 값</label><input id="addOut" readonly value="' + esc(addTxt) + '"><div class="hbar"><button class="small" type="button" data-copy="addOut">복사</button></div>'
+      + '<label for="remOut">삭제 입력칸에 붙여넣을 값</label><input id="remOut" readonly value="' + esc(remTxt) + '"><div class="hbar"><button class="small" type="button" data-copy="remOut">복사</button></div>'
+      + '<ol class="hint" style="padding-left:18px;margin:8px 0">'
+      + '<li>위 값을 복사합니다.</li><li>' + (url ? '<a href="' + esc(url) + '" target="_blank" rel="noopener">GitHub 실행 화면 열기 ↗</a>(로그인 필요)' : 'GitHub 저장소의 Actions → update-data 로 이동 (배포된 주소에서 열면 바로 가기가 나옵니다)') + '</li>'
+      + '<li>"Run workflow"를 누르고 해당 입력칸에 붙여넣은 뒤 실행합니다.</li><li>2~3분 뒤 이 앱을 새로고침합니다.</li></ol>'
+      + '<div class="hint">개별주 여부는 DART 상장사 목록으로 자동 판별하고, 그 외는 "기타 ETF"로 들어갑니다(검증의 중립 비교 묶음에는 포함되지 않음). 한 번에 10개까지, 전체 60개까지입니다.</div></div></details>';
+  }
+  function refreshEdit() { var el = document.getElementById('editBox'); if (el) { var h = el.outerHTML; el.outerHTML = editPanel(); } }
+
   function viewStock() {
     var list = visible();
     if (!list.length) return '<div class="card">표시할 종목이 없습니다.</div>';
@@ -264,10 +297,10 @@
     // ETF 와 주식을 나눠 각각 콤보(선택 상자)로 고른다. 고른 쪽만 값이 채워지고 다른 쪽은 "선택"으로 돌아간다.
     var isEtf = function (x) { return x.group !== 'stock'; };
     var etfs = list.filter(isEtf), stocks = list.filter(function (x) { return !isEtf(x); });
-    var GL = { index: '지수 ETF', sector: '섹터 ETF', leverage: '레버리지 ETF' };
+    var GL = { index: '지수 ETF', sector: '섹터 ETF', leverage: '레버리지 ETF', etf: '기타 ETF', inverse: '인버스 ETF' };
     function opts(arr, grouped) {
       if (!grouped) return arr.map(function (x) { return '<option value="' + esc(x.sym) + '"' + (x.sym === S.sel ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('');
-      return ['index', 'sector', 'leverage'].map(function (g) {
+      return ['index', 'sector', 'leverage', 'etf', 'inverse'].map(function (g) {
         var a = arr.filter(function (x) { return x.group === g; }); if (!a.length) return '';
         return '<optgroup label="' + GL[g] + '">' + opts(a, false) + '</optgroup>';
       }).join('');
@@ -300,7 +333,7 @@
     var tr = trkFor(w.sym, 6);
     if (tr.length) html += '<h3>최근 공시·내부자 <span class="muted">(DART, 참고 정보)</span></h3>' + tr.map(function (x) { return trkCard(x, false); }).join('') + '<div class="hint"><a href="#" data-trkgo="' + esc(w.sym) + '">거물 탭에서 전체 보기</a></div>';
     else if (w.group === 'stock' && S.trk) html += '<div class="hint">최근 ' + S.trk.windowDays + '일 안에 이 종목의 수집된 공시가 없습니다.</div>';
-    return html + foot();
+    return html + editPanel() + foot();
   }
 
   function drawChart() {
@@ -568,6 +601,7 @@
   function foot() { return '<footer>정보 제공용이며 투자 권유가 아닙니다. 시세는 지연·오차가 있을 수 있고 과거 검증은 미래를 보장하지 않습니다.</footer>'; }
 
   /* ---- 이벤트 ---- */
+  document.addEventListener('toggle', function (e) { if (e.target && e.target.id === 'editBox') S.editOpen = e.target.open; }, true);
   document.addEventListener('change', function (e) { // 종목 탭의 ETF·주식 콤보
     var t = e.target; if (!t || !t.getAttribute || !t.getAttribute('data-pick') || !t.value) return;
     S.sel = t.value; render();
@@ -580,6 +614,32 @@
     if (s) { S.sel = s.getAttribute('data-sym'); if (S.tab === 'today') { S.tab = 'stock'; document.querySelectorAll('#tabs button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-t') === 'stock'); }); } render(); return; }
     if (e.target.id === 'rerun') runBt(true);
     if (e.target.id === 'logAdd') addLog();
+    var id = e.target.id;
+    if (id === 'addQueue') {
+      var code = (document.getElementById('addCode').value || '').trim().toUpperCase(), nm = (document.getElementById('addName').value || '').replace(/[^0-9A-Za-z가-힣 \-&.()+]/g, '').trim().slice(0, 30);
+      if (!/^[0-9A-Z]{6}$/.test(code)) S.editMsg = '코드는 영문 대문자·숫자 6자리여야 합니다.';
+      else if (S.uni.watch.some(function (w) { return w.sym.split('.')[0] === code; })) S.editMsg = code + '는 이미 목록에 있습니다.';
+      else if (S.addQ.some(function (x) { return x.code === code; })) S.editMsg = '이미 담았습니다.';
+      else if (S.addQ.length >= 10) S.editMsg = '한 번에 10개까지 담을 수 있습니다.';
+      else { S.addQ.push({ code: code, name: nm }); S.editMsg = code + ' 담았습니다. 아래 요청 문구를 복사하세요.'; }
+      S.editOpen = true; refreshEdit(); return;
+    }
+    if (id === 'remQueue') {
+      var cw = S.uni.watch.filter(function (w) { return w.sym === S.sel; })[0], cc = cw ? cw.sym.split('.')[0] : '';
+      if (cw && !protectedSym(cw) && S.remQ.indexOf(cc) < 0) { S.remQ.push(cc); S.editMsg = cw.name + ' 삭제를 담았습니다.'; } else S.editMsg = '담을 수 없는 종목이거나 이미 담았습니다.';
+      S.editOpen = true; refreshEdit(); return;
+    }
+    var qd = e.target.closest('[data-qdel]'), rd = e.target.closest('[data-rdel]');
+    if (qd) { e.preventDefault(); S.addQ.splice(Number(qd.getAttribute('data-qdel')), 1); S.editOpen = true; refreshEdit(); return; }
+    if (rd) { e.preventDefault(); S.remQ.splice(Number(rd.getAttribute('data-rdel')), 1); S.editOpen = true; refreshEdit(); return; }
+    var cp = e.target.closest('[data-copy]');
+    if (cp) {
+      var inp = document.getElementById(cp.getAttribute('data-copy')); if (!inp || !inp.value) { S.editMsg = '복사할 내용이 없습니다. 먼저 종목을 담으세요.'; var em = document.getElementById('editMsg'); if (em) em.textContent = S.editMsg; return; }
+      inp.focus(); inp.select();
+      var done = function () { var em2 = document.getElementById('editMsg'); if (em2) em2.textContent = '복사했습니다.'; };
+      try { navigator.clipboard.writeText(inp.value).then(done, function () { document.execCommand && document.execCommand('copy'); done(); }); } catch (x) { try { document.execCommand('copy'); done(); } catch (y) { } }
+      return;
+    }
     var tg = e.target.closest('[data-trkgo]');
     if (tg) { e.preventDefault(); S.trkFilter = 'all'; S.tab = 'tracker'; document.querySelectorAll('#tabs button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-t') === 'tracker'); }); render(); return; }
     var tk = e.target.closest('[data-trk]');
