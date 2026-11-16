@@ -105,7 +105,7 @@
       var i = idx.c.length - 1, ch = idx.c[i] / idx.c[i - 1] - 1;
       var volTxt = cfg.volType === 'vix' ? 'VIX ' + (c.vol[i] == null ? '-' : c.vol[i].toFixed(1)) : '변동성 ' + (c.pct[i] == null ? '-' : Math.round(c.pct[i] * 100) + '백분위');
       html += '<h2>' + (m === 'US' ? '미국' : '국내') + ' 시장 온도</h2><div class="grid">'
-        + '<div class="card kpi"><div class="l">' + esc(cfg.index) + ' (' + idx.d[i] + ')</div><div class="v num ' + cls(ch) + '">' + idx.c[i].toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '</div><div class="num ' + cls(ch) + '">' + pct(ch) + '</div></div>'
+        + '<div class="card kpi"><div class="l">' + (cfg.index === '^KS11' ? '코스피' : esc(cfg.index)) + ' (' + idx.d[i] + ')</div><div class="v num ' + cls(ch) + '">' + idx.c[i].toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '</div><div class="num ' + cls(ch) + '">' + pct(ch) + '</div></div>'
         + '<div class="card kpi"><div class="l">' + volTxt + '</div><div class="v num">' + (c.dd[i] * 100).toFixed(1) + '%</div><div class="muted">지수 52주 낙폭</div></div></div>';
     });
     html += '<h2>오늘의 행동</h2>';
@@ -114,7 +114,7 @@
       var d = S.ev[w.sym], e = d.ev, L = last(w.sym), ch = L.c / L.p - 1;
       var age = d.age !== null ? (d.fresh ? '신규 ' : '지속 ') + (d.ageMin ? (d.age + '일+') : (d.age + 1) + '일째') + ' · ' : '';
       var badge = e.overheat ? '<span class="badge hot">과열 · 신규 매수 중단</span>' : e.tier ? '<span class="badge ' + (d.fresh ? 't' + e.tier : '') + '">' + age + e.tier + '차</span>' : '<span class="badge">신호 없음</span>';
-      var nofair = S.lens !== 'pool' && e.hasFair === false ? ' · <span class="muted">적정가 없음</span>' : '';
+      var nofair = (S.lens !== 'pool' && e.hasFair === false ? ' · <span class="muted">적정가 없음</span>' : '') + (execTier(w.sym) ? ' · <b>' + execTier(w.sym) + '차 집행</b>' : '');
       return '<button class="card srow" type="button" data-sym="' + esc(w.sym) + '"><div class="ring" style="--p:' + e.score + ';--c:' + (d.fresh ? 'var(--accent)' : 'var(--muted)') + '"><span class="num">' + Math.round(e.score) + '</span></div>'
         + '<div class="nm"><b>' + esc(w.name) + '</b><span class="muted num">' + w.market + ' · ' + money(L.raw, S.uni.markets[w.market].currency) + ' <span class="' + cls(ch) + '">' + pct(ch) + '</span>' + nofair + '</span></div>' + badge + '</button>';
     }
@@ -202,8 +202,8 @@
     var html = '<div class="chips">' + list.map(function (x) { return '<button type="button" data-sym="' + esc(x.sym) + '" class="' + (x.sym === S.sel ? 'on' : '') + '">' + esc(x.name) + '</button>'; }).join('') + '</div>';
     html += '<div class="card"><b>' + esc(w.name) + '</b> <span class="muted">' + esc(w.sym) + ' · ' + L.d + (w.lev > 1 ? ' · ' + w.lev + '배 레버리지' : '') + '</span>'
       + '<div style="font-size:22px;font-weight:700" class="num">' + money(L.raw, S.uni.markets[w.market].currency) + '</div><canvas id="chart"></canvas>'
-      + '<div class="hint">검정: 종가(수정주가), 청록: 200일선, 점: 과거 신호 첫날</div></div>';
-    var stTxt = d.age === null ? '' : (d.fresh ? '신규 신호 · 켜진 지 ' + (d.age + 1) + '거래일째' : '지속 중 · 켜진 지 ' + (d.ageMin ? d.age + '거래일 이상' : (d.age + 1) + '거래일째') + ' (신규 진입 우위 낮음)');
+      + '<div class="hint">검정: 종가(수정주가), 청록: 200일선, 점: 과거 신호 첫날</div><div class="hbar" style="margin-bottom:0"><button class="small" type="button" data-logsym="' + esc(w.sym) + '">이 종목 매매 기록하기</button></div></div>';
+    var stTxt = d.age === null ? '' : (d.fresh ? '신규 신호 · 켜진 지 ' + (d.age + 1) + '거래일째' : '지속 중 · 켜진 지 ' + (d.ageMin ? d.age + '거래일 이상' : (d.age + 1) + '거래일째') + ' (신규 진입 우위 낮음)') + (execTier(w.sym) ? ' · 이번 신호 구간에 ' + execTier(w.sym) + '차 집행(내 기록)' : '');
     html += '<div class="card"><b>' + LENS[S.lens] + ' 관점 · 점수 ' + e.score + ' / 100 · ' + (e.tier ? e.tier + '차' : '신호 없음') + '</b>' + (stTxt ? '<div class="' + (d.fresh ? '' : 'muted') + '">' + stTxt + '</div>' : '');
     e.notes.forEach(function (n) { html += '<div class="note">' + esc(n) + '</div>'; });
     function chk(list) {
@@ -389,45 +389,102 @@
   }
 
   /* ---- 내 계좌 ---- */
-  function loadAcct() { try { return Object.assign({ cashKRW: '', cashUSD: '', keep: 20, limit: 25, hold: {} }, JSON.parse(lsGet(ACCT_KEY) || '{}')); } catch (e) { return { cashKRW: '', cashUSD: '', keep: 20, limit: 25, hold: {} }; } }
+  function loadAcct() { try { return Object.assign({ cashKRW: '', keep: 20, limit: 25, hold: {} }, JSON.parse(lsGet(ACCT_KEY) || '{}')); } catch (e) { return { cashKRW: '', keep: 20, limit: 25, hold: {} }; } }
+  /* 매매 기록: 이 기기에만 저장. 보유 수량 = 기록 이전 보유분(직접 입력) + 기록의 순매수 수량 */
+  var LOG_KEY = 'trader-log-v1';
+  function loadLog() { try { var a = JSON.parse(lsGet(LOG_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+  function saveLog(a) { lsSet(LOG_KEY, JSON.stringify(a)); }
+  function netQty(sym) { return loadLog().reduce(function (s, x) { return x.sym === sym ? s + (x.side === 'sell' ? -1 : 1) * x.qty : s; }, 0); }
+  function holdQty(sym, a) { return (Number(a.hold[sym]) || 0) + netQty(sym); }
+  function today() { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  // 현재 신호 구간(처음 켜진 날 이후)에 집행한 최대 차수. 같은 차수를 또 추천하지 않는 데 쓴다.
+  function execTier(sym) {
+    var d = S.ev[sym]; if (!d || d.age === null) return 0;
+    var startDate = S.ser[sym].d[d.i - d.age], t = 0;
+    loadLog().forEach(function (x) { if (x.sym === sym && x.side === 'buy' && x.date >= startDate && x.tier > t) t = x.tier; });
+    return t;
+  }
+  function renderLog() {
+    var el = $('#logList'); if (!el) return;
+    var nm = {}; S.uni.watch.forEach(function (w) { nm[w.sym] = w.name; });
+    var rows = loadLog().sort(function (p, q) { return p.date < q.date ? 1 : p.date > q.date ? -1 : (p.id < q.id ? 1 : -1); }).slice(0, 12);
+    el.innerHTML = rows.length ? '<div class="tablebox" style="margin-top:10px"><table style="min-width:440px"><thead><tr><th>날짜</th><th>종목</th><th>구분</th><th>수량</th><th>체결가</th><th></th></tr></thead><tbody>' + rows.map(function (x) {
+      return '<tr><td>' + esc(x.date) + '</td><td>' + esc(nm[x.sym] || x.sym) + '</td><td>' + (x.side === 'sell' ? '매도' : '매수' + (x.tier ? ' ' + x.tier + '차' : '')) + '</td><td class="num">' + x.qty + '</td><td class="num">' + Math.round(x.px).toLocaleString('ko-KR') + '</td><td><button class="small" type="button" data-logdel="' + esc(x.id) + '" aria-label="기록 삭제">삭제</button></td></tr>';
+    }).join('') + '</tbody></table></div>' : '<div class="hint" style="margin-top:8px">아직 기록이 없습니다. 매수·매도한 뒤 여기에 적어 두면 같은 차수를 또 추천하지 않고, 보유 수량에 자동 반영됩니다.</div>';
+  }
   function viewAcct() {
     var a = loadAcct(), html = '<h2>내 계좌</h2><p class="hint">입력은 이 기기의 브라우저에만 저장됩니다. 서버로 보내지 않습니다.</p><div class="card"><div class="form">'
       + '<div><label for="cashKRW">현금(원)</label><input id="cashKRW" type="number" inputmode="numeric" value="' + esc(a.cashKRW) + '"></div>'
       + '<div><label for="keep">최소 유지 현금 비율(%)</label><input id="keep" type="number" inputmode="numeric" value="' + esc(a.keep) + '"></div>'
       + '<div><label for="limit">단일 종목 한도(총자산 대비 %)</label><input id="limit" type="number" inputmode="numeric" value="' + esc(a.limit) + '"></div></div></div>'
-      + '<h3>보유 수량</h3><div class="card"><div class="form">'
+      + '<h3>매매 기록</h3><div class="card"><div class="form">'
+      + '<div><label for="logSym">종목</label><select id="logSym">' + S.uni.watch.filter(function (w) { return S.ser[w.sym]; }).map(function (w) { return '<option value="' + esc(w.sym) + '"' + (w.sym === S.logSym ? ' selected' : '') + '>' + esc(w.name) + '</option>'; }).join('') + '</select></div>'
+      + '<div><label for="logSide">구분</label><select id="logSide"><option value="buy">매수</option><option value="sell">매도</option></select></div>'
+      + '<div><label for="logTier">집행한 차수(매수일 때)</label><select id="logTier"><option value="0">차수 없음</option><option value="1">1차</option><option value="2">2차</option><option value="3">3차</option></select></div>'
+      + '<div><label for="logDate">날짜</label><input id="logDate" type="date" value="' + today() + '"></div>'
+      + '<div><label for="logQty">수량(주)</label><input id="logQty" type="number" inputmode="numeric" min="1"></div>'
+      + '<div><label for="logPx">체결가(원)</label><input id="logPx" type="number" inputmode="numeric" min="1"></div></div>'
+      + '<div class="hbar"><button class="primary" id="logAdd" type="button">기록 추가</button></div><div id="logMsg" class="hint"></div><div id="logList"></div></div>'
+      + '<h3>보유 수량 <span class="muted" style="font-weight:400;font-size:13px">(기록 이전에 이미 갖고 있던 수량)</span></h3><div class="card"><div class="form">'
       + S.uni.watch.filter(function (w) { return S.ser[w.sym]; }).map(function (w) { return '<div><label for="h_' + esc(w.sym) + '">' + esc(w.name) + ' (주)</label><input id="h_' + esc(w.sym) + '" data-h="' + esc(w.sym) + '" type="number" inputmode="numeric" value="' + esc(a.hold[w.sym] || '') + '"></div>'; }).join('')
       + '</div></div><h3>권장 매수 상한</h3><div id="acctOut"></div>'
-      + '<div class="note">새로 켜진 신호(켜진 지 11거래일 이내)만 표시합니다. 가용 현금 = 현금 × (1 - 최소 유지 비율). 차수별 사용 비율은 1차 20%, 2차 30%, 3차 50%입니다. 상한은 종목마다 따로 계산하므로 <b>여러 종목의 합계가 가용 현금을 넘을 수 있습니다.</b> 신호가 많이 켜진 날에는 우선순위를 직접 정하세요. 같은 차수 반복 추천을 막는 매매 기록은 아직 없습니다.</div>' + foot();
+      + '<div class="note">새로 켜진 신호(켜진 지 11거래일 이내)만 대상입니다. 가용 현금 = 현금 × (1 - 최소 유지 비율). 차수별 사용 비율은 1차 20%, 2차 30%, 3차 50%이고, <b>점수가 높은 종목부터 가용 현금 안에서 차례로 배분</b>합니다(합계가 가용 현금을 넘지 않음). 이미 집행한 차수는 다시 추천하지 않습니다. 현금은 직접 갱신하세요(기록은 현금을 자동으로 바꾸지 않습니다).</div>' + foot();
     return html;
   }
   function bindAcct() {
     $('#view').oninput = function (e) {
-      var a = loadAcct(), t = e.target;
+      var t = e.target; if (t.id && t.id.indexOf('log') === 0) return; // 매매 기록 입력칸은 저장하지 않는다(추가 버튼으로만 기록)
+      var a = loadAcct();
       if (t.getAttribute('data-h')) a.hold[t.getAttribute('data-h')] = t.value; else if (t.id) a[t.id] = t.value;
       lsSet(ACCT_KEY, JSON.stringify(a)); calcAcct();
     };
+    $('#view').onchange = function (e) { if (e.target.id === 'logSym') syncLogForm(); };
+    syncLogForm(); renderLog();
+  }
+  // 종목을 고르면 현재 차수를 기본 선택하고 현재가를 안내한다
+  function syncLogForm() {
+    var s = $('#logSym'), tier = $('#logTier'), px = $('#logPx'); if (!s || !tier || !px) return;
+    var d = S.ev[s.value]; S.logSym = s.value;
+    tier.value = d && d.ev.tier ? String(d.ev.tier) : '0';
+    px.placeholder = S.ser[s.value] ? '현재가 ' + Math.round(last(s.value).raw).toLocaleString('ko-KR') : '';
+  }
+  function addLog() {
+    var msg = $('#logMsg'), sym = $('#logSym').value, side = $('#logSide').value, tier = Number($('#logTier').value) || 0;
+    var date = $('#logDate').value, qty = Math.floor(Number($('#logQty').value)), px = Number($('#logPx').value);
+    if (!sym || !date || !(qty > 0) || !(px > 0)) { msg.textContent = '날짜, 수량, 체결가를 모두 올바르게 입력하세요.'; return; }
+    if (side === 'sell') { tier = 0; var a = loadAcct(); if (qty > holdQty(sym, a)) { msg.textContent = '보유 수량(' + holdQty(sym, a) + '주)보다 많이 매도할 수 없습니다. 기록 이전 보유분을 먼저 입력하세요.'; return; } }
+    var log = loadLog(); log.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), date: date, sym: sym, side: side, tier: tier, qty: qty, px: px }); saveLog(log);
+    $('#logQty').value = ''; $('#logPx').value = ''; msg.textContent = '기록했습니다.';
+    renderLog(); calcAcct();
   }
   function calcAcct() {
     var out = $('#acctOut'); if (!out) return;
-    var a = loadAcct(), keep = (Number(a.keep) || 0) / 100, lim = (Number(a.limit) || 100) / 100, html = '', any = false, ongoingN = 0;
-    var cash = { KRW: Number(a.cashKRW) || 0 };
-    ['KRW'].forEach(function (cur) {
-      var held = 0;
-      S.uni.watch.forEach(function (w) { if (S.ser[w.sym] && S.uni.markets[w.market].currency === cur) held += (Number(a.hold[w.sym]) || 0) * last(w.sym).raw; });
-      var total = cash[cur] + held, avail = cash[cur] * (1 - keep);
-      S.uni.watch.forEach(function (w) {
-        if (!S.ev[w.sym] || S.uni.markets[w.market].currency !== cur) return;
-        var e = S.ev[w.sym].ev; if (!e.tier) return;
-        if (!S.ev[w.sym].fresh) { ongoingN++; return; } // 신규 신호만 매수 상한을 계산한다
-        any = true;
-        var px = last(w.sym).raw, own = (Number(a.hold[w.sym]) || 0) * px;
-        var amt = Math.max(0, Math.min(avail * RATIO[e.tier - 1], total * lim - own)), sh = Math.floor(amt / px);
-        html += '<div class="card"><b>' + esc(w.name) + '</b> <span class="badge t' + e.tier + '">' + e.tier + '차</span><div class="num">상한 ' + money(amt, cur) + ' → 약 ' + sh + '주 <span class="muted">(현재가 ' + money(px, cur) + ')</span></div></div>';
-      });
+    var a = loadAcct(), keep = (Number(a.keep) || 0) / 100, lim = (Number(a.limit) || 100) / 100;
+    var cash = Number(a.cashKRW) || 0, held = 0, cand = [], ongoingN = 0, done = [];
+    S.uni.watch.forEach(function (w) { if (S.ser[w.sym]) held += holdQty(w.sym, a) * last(w.sym).raw; });
+    var total = cash + held, avail = cash * (1 - keep), remaining = avail;
+    S.uni.watch.forEach(function (w) {
+      var d = S.ev[w.sym]; if (!d || !d.ev.tier) return;
+      if (!d.fresh) { ongoingN++; return; } // 신규 신호만 매수 상한을 계산한다
+      var ex = execTier(w.sym);
+      if (ex >= d.ev.tier) { done.push(w.name + ' ' + ex + '차'); return; } // 이미 집행한 차수는 다시 추천하지 않는다
+      cand.push({ w: w, e: d.ev, ex: ex });
     });
-    var tail = ongoingN ? '<div class="hint">지속 중인 신호 ' + ongoingN + '종목은 신규 진입 우위가 낮아 상한을 계산하지 않았습니다.</div>' : '';
-    out.innerHTML = (any ? html : '<div class="card muted">지금 새로 켜진 신호가 없습니다.</div>') + tail;
+    cand.sort(function (p, q) { return q.e.score - p.e.score; }); // 점수가 높은 종목부터 가용 현금 안에서 배분
+    var html = '';
+    cand.forEach(function (c) {
+      var px = last(c.w.sym).raw, own = holdQty(c.w.sym, a) * px;
+      var want = avail * RATIO[c.e.tier - 1], capLim = Math.max(0, total * lim - own);
+      var remBefore = remaining, amt = Math.max(0, Math.min(want, capLim, remBefore)), sh = Math.floor(amt / px), used = sh * px;
+      remaining -= used;
+      var why = amt < want - 1 ? (capLim < Math.min(want, remBefore) ? ' · 단일 종목 한도' : ' · 남은 현금 부족') : '';
+      html += '<div class="card"><b>' + esc(c.w.name) + '</b> <span class="badge t' + c.e.tier + '">' + c.e.tier + '차 추천' + (c.ex ? ' (' + c.ex + '차 집행함)' : '') + '</span>'
+        + '<div class="num">' + (sh > 0 ? sh + '주 · 약 ' + money(used, 'KRW') : '배분 없음') + ' <span class="muted">(상한 ' + money(amt, 'KRW') + why + ' · 현재가 ' + money(px, 'KRW') + ')</span></div></div>';
+    });
+    var allocated = avail - remaining;
+    var head = '<div class="hint">가용 현금 ' + money(avail, 'KRW') + ' · 배분 합계 ' + money(allocated, 'KRW') + ' · 남음 ' + money(remaining, 'KRW') + '</div>';
+    var tail = (ongoingN ? '<div class="hint">지속 중인 신호 ' + ongoingN + '종목은 신규 진입 우위가 낮아 배분하지 않았습니다.</div>' : '') + (done.length ? '<div class="hint">이미 집행한 차수라 제외: ' + esc(done.join(', ')) + '</div>' : '');
+    out.innerHTML = (cand.length ? head + html : '<div class="card muted">지금 새로 추천할 신호가 없습니다.</div>') + tail;
   }
   function foot() { return '<footer>정보 제공용이며 투자 권유가 아닙니다. 시세는 지연·오차가 있을 수 있고 과거 검증은 미래를 보장하지 않습니다.</footer>'; }
 
@@ -439,6 +496,11 @@
     if (m) { S.mkt = m.getAttribute('data-m'); document.querySelectorAll('#mkt button').forEach(function (b) { b.classList.toggle('on', b === m); }); render(); return; }
     if (s) { S.sel = s.getAttribute('data-sym'); if (S.tab === 'today') { S.tab = 'stock'; document.querySelectorAll('#tabs button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-t') === 'stock'); }); } render(); return; }
     if (e.target.id === 'rerun') runBt(true);
+    if (e.target.id === 'logAdd') addLog();
+    var ls = e.target.closest('[data-logsym]');
+    if (ls) { S.logSym = ls.getAttribute('data-logsym'); S.tab = 'acct'; document.querySelectorAll('#tabs button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-t') === 'acct'); }); render(); return; }
+    var ld = e.target.closest('[data-logdel]');
+    if (ld) { saveLog(loadLog().filter(function (x) { return x.id !== ld.getAttribute('data-logdel'); })); renderLog(); calcAcct(); }
     if (e.target.id === 'calRun') runCalib();
     if (e.target.id === 'useCal') { S.useCal = e.target.checked; lsSet(USECAL_KEY, S.useCal ? '1' : '0'); compute(); chip(); }
     if (e.target.id === 'edgeRun') { try { localStorage.removeItem('trader-edge-v' + Engine.VERSION + '-' + (S.man ? S.man.updated : 0) + '-' + Object.keys(S.fund).length); } catch (x) { } S.edge = null; runEdge(); }
