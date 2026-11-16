@@ -261,7 +261,21 @@
     if (!list.length) return '<div class="card">표시할 종목이 없습니다.</div>';
     if (!S.sel || !list.some(function (w) { return w.sym === S.sel; })) S.sel = list[0].sym;
     var w = list.filter(function (x) { return x.sym === S.sel; })[0], d = S.ev[w.sym], e = d.ev, L = last(w.sym);
-    var html = '<div class="chips">' + list.map(function (x) { return '<button type="button" data-sym="' + esc(x.sym) + '" class="' + (x.sym === S.sel ? 'on' : '') + '">' + esc(x.name) + '</button>'; }).join('') + '</div>';
+    // ETF 와 주식을 나눠 각각 콤보(선택 상자)로 고른다. 고른 쪽만 값이 채워지고 다른 쪽은 "선택"으로 돌아간다.
+    var isEtf = function (x) { return x.group !== 'stock'; };
+    var etfs = list.filter(isEtf), stocks = list.filter(function (x) { return !isEtf(x); });
+    var GL = { index: '지수 ETF', sector: '섹터 ETF', leverage: '레버리지 ETF' };
+    function opts(arr, grouped) {
+      if (!grouped) return arr.map(function (x) { return '<option value="' + esc(x.sym) + '"' + (x.sym === S.sel ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('');
+      return ['index', 'sector', 'leverage'].map(function (g) {
+        var a = arr.filter(function (x) { return x.group === g; }); if (!a.length) return '';
+        return '<optgroup label="' + GL[g] + '">' + opts(a, false) + '</optgroup>';
+      }).join('');
+    }
+    var selIsEtf = isEtf(list.filter(function (x) { return x.sym === S.sel; })[0] || {});
+    var html = '<div class="form" style="margin-bottom:10px">'
+      + '<div><label for="selEtf">ETF (' + etfs.length + ')</label><select id="selEtf" data-pick="1">' + (selIsEtf ? '' : '<option value="" selected>ETF 선택…</option>') + opts(etfs, true) + '</select></div>'
+      + '<div><label for="selStock">주식 (' + stocks.length + ')</label><select id="selStock" data-pick="1">' + (selIsEtf ? '<option value="" selected>주식 선택…</option>' : '') + opts(stocks, false) + '</select></div></div>';
     html += '<div class="card"><b>' + esc(w.name) + '</b> <span class="muted">' + esc(w.sym) + ' · ' + L.d + (w.lev > 1 ? ' · ' + w.lev + '배 레버리지' : '') + '</span>'
       + '<div style="font-size:22px;font-weight:700" class="num">' + money(L.raw, S.uni.markets[w.market].currency) + '</div><canvas id="chart"></canvas>'
       + '<div class="hint">검정: 종가(수정주가), 청록: 200일선, 점: 과거 신호 첫날</div><div class="hbar" style="margin-bottom:0"><button class="small" type="button" data-logsym="' + esc(w.sym) + '">이 종목 매매 기록하기</button></div></div>';
@@ -554,6 +568,10 @@
   function foot() { return '<footer>정보 제공용이며 투자 권유가 아닙니다. 시세는 지연·오차가 있을 수 있고 과거 검증은 미래를 보장하지 않습니다.</footer>'; }
 
   /* ---- 이벤트 ---- */
+  document.addEventListener('change', function (e) { // 종목 탭의 ETF·주식 콤보
+    var t = e.target; if (!t || !t.getAttribute || !t.getAttribute('data-pick') || !t.value) return;
+    S.sel = t.value; render();
+  });
   document.addEventListener('click', function (e) {
     var t = e.target.closest('[data-t]'), m = e.target.closest('[data-m]'), s = e.target.closest('[data-sym]'), l = e.target.closest('[data-l]');
     if (l) { S.lens = l.getAttribute('data-l'); S.bt = null; document.querySelectorAll('#lens button').forEach(function (b) { b.classList.toggle('on', b === l); }); compute(); render(); return; }
