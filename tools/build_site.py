@@ -5,7 +5,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "_site")
-FILES = ["index.html", "styles.css", "app.js", "engine.js", "bt-worker.js", "sw.js", "manifest.webmanifest", "icon.svg"]
+FILES = ["index.html", "styles.css", "app.js", "engine.js", "regime.js", "bt-worker.js", "sw.js", "manifest.webmanifest", "icon.svg"]
 DATA_SKIP = {"corp_codes.json"}  # 내부 매핑 캐시는 배포하지 않음(다음 실행에서 다시 받음)
 
 

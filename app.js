@@ -46,14 +46,17 @@
         return getJson('data/px/' + fname(sym) + '?v=' + v).then(function (j) { S.ser[sym] = j; S.src[sym] = 'net'; idbSet(sym, j); })
           .catch(function () { return idbGet(sym).then(function (j) { if (j) { S.ser[sym] = j; S.src[sym] = 'cache'; } }); });
       }));
-    }).then(function () { return getJson('data/fund.json').catch(function () { return {}; }); }).then(function (f) { S.fund = f || {}; compute(); chip(); render(); }).catch(function (e) {
+    }).then(function () { return getJson('data/fund.json').catch(function () { return {}; }); }).then(function (f) {
+      S.fund = f || {};
+      return getJson('data/macro.json').catch(function () { return null; });
+    }).then(function (mc) { S.macro = mc; compute(); chip(); render(); }).catch(function (e) {
       $('#fresh').textContent = '데이터 없음'; $('#fresh').className = 'chip late';
       $('#view').innerHTML = '<div class="note">데이터를 불러오지 못했습니다. <code>python tools/update_data.py</code> 실행 후 <code>python server.py</code> 로 열어 주세요. (' + esc(e.message) + ')</div>';
     });
   }
 
   function compute() {
-    S.mk = {}; S.ev = {};
+    S.mk = {}; S.ev = {}; S.reg = null;
     Object.keys(S.uni.markets).forEach(function (m) {
       var cfg = S.uni.markets[m], idx = S.ser[cfg.index];
       if (!idx) return;
@@ -87,6 +90,7 @@
     var v = $('#view');
     if (S.tab === 'today') v.innerHTML = viewToday();
     else if (S.tab === 'stock') { v.innerHTML = viewStock(); drawChart(); }
+    else if (S.tab === 'market') v.innerHTML = viewMarket();
     else if (S.tab === 'verify') { v.innerHTML = viewVerify(); bindCost(); if (!S.bt && !S.btBusy) runBt(false); }
     else { v.innerHTML = viewAcct(); bindAcct(); calcAcct(); }
     window.scrollTo(0, 0);
@@ -127,6 +131,78 @@
     var calOn = S.useCal && S.calib && S.calib.res && ['US', 'KR'].filter(function (m) { return S.calib.res[m] && S.calib.res[m].adopted; });
     html += '<div class="note">' + (calOn && calOn.length ? '자동 보정값 사용 중(' + calOn.map(function (m) { return m === 'US' ? '미국' : '국내'; }).join(', ') + '). ' : '') + '점수는 과거 하락 구간의 겹침 정도를 숫자로 만든 것이며 투자 권유가 아닙니다. 신규/지속 구분은 참고용입니다: 이 앱의 검증에서는 신규 구간이 지속 구간보다 뚜렷하게 좋지 않았습니다(검증 탭 "경과별"). 검증 탭에서 기준선 대비 효과를 확인하세요.</div>';
     return html + foot();
+  }
+
+  /* ---- 시장 국면 ---- */
+  function lastDate(sym) { var s = S.ser[sym]; return s ? s.d[s.d.length - 1] : null; }
+  function regimes() {
+    if (S.reg) return S.reg;
+    S.reg = {};
+    [['US', '^GSPC'], ['KR', '^KS11']].forEach(function (p) { var d = lastDate(p[1]); if (d && S.mk[p[0]]) S.reg[p[0]] = Regime.analyze(S.ser, S.macro, S.mk, p[0], d); });
+    return S.reg;
+  }
+  function chgBy(sym, days, yieldLike) {
+    var s = S.ser[sym]; if (!s) return null; var n = s.c.length - 1, t = s.d[n], lim = new Date(Date.UTC(+t.slice(0, 4), +t.slice(5, 7) - 1, +t.slice(8, 10)) - days * 86400000).toISOString().slice(0, 10), j = n;
+    while (j > 0 && s.d[j] > lim) j--;
+    if (j === n || s.d[j] > lim) return null;
+    return yieldLike ? s.c[n] - s.c[j] : (s.c[j] > 0 && s.c[n] > 0 ? s.c[n] / s.c[j] - 1 : null);
+  }
+  function regCard(m) {
+    var r = regimes()[m]; if (!r) return '';
+    var rows = r.areas.map(function (a) {
+      var w = a.score == null ? 0 : Math.abs(a.score) / 2 * 50, bar = a.score == null ? '' : '<i style="width:' + w + '%;' + (a.score < 0 ? 'right:50%;background:var(--down)' : 'left:50%;background:var(--up)') + '"></i>';
+      return '<tr><td>' + a.name + ' <span class="muted">' + a.weight + '%</span></td><td class="num">' + (a.score == null ? '유보' : (a.score > 0 ? '+' : '') + a.score.toFixed(2)) + '</td><td><div class="sc">' + bar + '</div></td><td>' + r.evalLabel(a.score) + '</td></tr>';
+    }).join('');
+    var ev = r.areas.map(function (a) {
+      return '<h3 style="font-size:14px">' + a.name + ' (' + a.n + '/' + a.total + '개 확인)</h3>' + a.metrics.map(function (x) {
+        return '<div class="chk"><span>' + esc(x.label) + (x.note ? ' <span class="muted">· ' + esc(x.note) + '</span>' : '') + '</span><span class="num">' + (x.score == null ? '<span class="badge hot">확인 불가</span>' : esc(x.text) + ' · ' + (x.score > 0 ? '+' : '') + x.score) + '</span>' + (x.asof ? '<span class="hint" style="grid-column:1/-1">기준 ' + esc(x.asof) + '</span>' : '') + '</div>';
+      }).join('');
+    }).join('');
+    return '<div class="card"><div class="hint">' + (m === 'US' ? '미국' : '국내') + ' · 기준 ' + r.date + ' 종가</div><div class="reg">' + esc(r.name) + '</div>'
+      + '<div>신뢰도 <b>' + r.confidence + '</b> · 전환 가능성 <b>' + r.transition + '</b> · 한 달 전 ' + esc(r.prevName) + '</div>'
+      + '<p style="margin:10px 0 6px">현재 ' + (m === 'US' ? '미국' : '한국') + ' 시장은 <b>' + esc(r.name) + '</b>에 있으며, 가장 중요한 근거는 ' + (r.drivers.length ? esc(r.drivers.join(' · ')) : '뚜렷한 근거 없음(지표 대부분이 중립)') + '입니다.</p>'
+      + '<div class="hint">' + esc(r.hint) + ' (일반론적 설명이며 매매 신호가 아닙니다)</div>'
+      + '<div class="tablebox" style="margin-top:10px"><table style="min-width:420px"><thead><tr><th>영역(가중치)</th><th>점수</th><th></th><th>평가</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+      + '<div class="hint">종합 ' + (r.total == null ? '-' : (r.total > 0 ? '+' : '') + r.total.toFixed(2)) + ' · 지표 확보율 ' + Math.round(r.coverage * 100) + '%. 점수만으로 국면을 기계적으로 정하지 않고 유동성·경기 중심 규칙으로 분류했습니다.</div>'
+      + '<details><summary>지표별 근거 보기</summary>' + ev + '<h3 style="font-size:14px">확인 불가 항목</h3><div class="hint">' + esc(r.unavailable.join(' · ')) + '</div></details></div>';
+  }
+  function viewMarket() {
+    if (!window.Regime) return '<div class="note">국면 모듈을 불러오지 못했습니다.</div>';
+    var mk = S.mkt === 'ALL' ? ['US', 'KR'] : [S.mkt];
+    var html = '<h2>시장 국면 판별</h2><p class="hint">가격과 공개 거시 지표로 계산 가능한 것만 사용합니다. 국면은 판단의 출발점이며 매수 점수에는 반영되지 않습니다.</p>';
+    if (!S.macro || !S.macro.series || !Object.keys(S.macro.series).length) html += '<div class="note">FRED 지표(금융여건·하이일드 스프레드·실질금리·실업수당·실업률)를 아직 받지 못했습니다. 해당 지표는 "확인 불가"로 두고 나머지로 판별해 신뢰도가 낮습니다.</div>';
+    mk.forEach(function (m) { html += regCard(m); });
+    // 과거 성과
+    var us = regimes().US;
+    if (us) {
+      if (S.regHist === undefined || S.regHistKey !== (S.macro ? S.macro.updated : 0)) { S.regHist = Regime.history(S.ser, S.macro, S.mk); S.regHistKey = S.macro ? S.macro.updated : 0; }
+      var hs = S.regHist;
+      if (hs) {
+        html += '<h2>이 국면, 과거엔?</h2><p class="hint">월말 시점의 미국 국면과 이후 3개월 S&P500 수익(2008~). 월 1회 표본이라 횟수가 적고 3개월이 겹칩니다.</p><div class="tablebox"><table><thead><tr><th>미국 국면</th><th>횟수</th><th>3개월 상승</th><th>평균</th></tr></thead><tbody>';
+        Object.keys(Regime.NAMES).forEach(function (k) {
+          var x = hs.rows[k]; html += '<tr' + (us.id === +k ? ' style="font-weight:700"' : '') + '><td>' + Regime.NAMES[k] + '</td><td class="num">' + x.n + '</td><td class="num">' + (x.n ? (x.up * 100).toFixed(0) + '%' : '-') + '</td><td class="num ' + cls(x.mean) + '">' + (x.n ? pct(x.mean, 1) : '-') + '</td></tr>';
+        });
+        html += '<tr><td>전체</td><td class="num">' + hs.all.n + '</td><td class="num">' + (hs.all.n ? (hs.all.up * 100).toFixed(0) + '%' : '-') + '</td><td class="num">' + (hs.all.n ? pct(hs.all.mean, 1) : '-') + '</td></tr></tbody></table></div><div class="hint">국면별 차이가 뚜렷하지 않거나 횟수가 적으면 국면은 상황 설명이지 매매 신호가 아닙니다. 발표 지연을 반영했지만 과거 재현에는 한계가 있습니다.</div>';
+      }
+    }
+    // 주요 시장 데이터
+    var items = [['코스피', '^KS11'], ['코스닥', '^KQ11'], ['S&P500', '^GSPC'], ['나스닥100(QQQ)', 'QQQ'], ['러셀2000(IWM)', 'IWM'], ['필라델피아 반도체', '^SOX'], ['VIX', '^VIX'], ['미 10년물 금리', '^TNX', 1], ['미 5년물 금리', '^FVX', 1], ['미 3개월물 금리', '^IRX', 1], ['달러인덱스', 'DX-Y.NYB'], ['원/달러', 'KRW=X'], ['WTI 원유', 'CL=F'], ['금', 'GC=F'], ['구리', 'HG=F']];
+    html += '<h2>주요 시장 데이터</h2><p class="hint">출처 Yahoo Finance(지연·오차 가능). 금리는 %p 변화.</p><div class="tablebox"><table style="min-width:520px"><thead><tr><th>지표</th><th>현재</th><th>1일</th><th>1개월</th><th>3개월</th></tr></thead><tbody>';
+    items.forEach(function (it) {
+      var s = S.ser[it[1]]; if (!s) return; var yl = !!it[2], v = s.c[s.c.length - 1];
+      function cell(d) { var c = chgBy(it[1], d, yl); return '<td class="num ' + (c == null ? '' : cls(c)) + '">' + (c == null ? '-' : yl ? (c > 0 ? '+' : '') + c.toFixed(2) + '%p' : pct(c, 1)) + '</td>'; }
+      html += '<tr><td>' + it[0] + ' <span class="muted">' + s.d[s.d.length - 1].slice(5) + '</span></td><td class="num">' + v.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '</td>' + cell(1) + cell(30) + cell(91) + '</tr>';
+    });
+    html += '</tbody></table></div>';
+    if (S.macro && S.macro.series) {
+      html += '<div class="hint">거시 지표(FRED)</div><div class="tablebox"><table style="min-width:520px"><thead><tr><th>지표</th><th>현재</th><th>기준일</th><th>3개월 전 대비</th></tr></thead><tbody>';
+      Object.keys(S.macro.series).forEach(function (id) {
+        var m = S.macro.series[id], n = m.d.length - 1, j = n; var lim = new Date(Date.UTC(+m.d[n].slice(0, 4), +m.d[n].slice(5, 7) - 1, +m.d[n].slice(8, 10)) - 91 * 86400000).toISOString().slice(0, 10); while (j > 0 && m.d[j] > lim) j--;
+        html += '<tr><td>' + esc(m.name) + '</td><td class="num">' + m.v[n].toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '</td><td class="num">' + m.d[n] + '</td><td class="num">' + (m.d[j] <= lim ? (m.v[n] - m.v[j] > 0 ? '+' : '') + (m.v[n] - m.v[j]).toFixed(2) : '-') + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    return html + '<div class="note">경제 일정, AI 해설, PMI·기업이익·외국인 수급 같은 항목은 자동 수집이 어려워 포함하지 않았습니다. 투자 권유가 아닙니다.</div>' + foot();
   }
 
   function viewStock() {

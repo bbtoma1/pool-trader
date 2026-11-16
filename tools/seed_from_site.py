@@ -48,7 +48,7 @@ def main():
         print("universe.json 없음")
         return 0
     syms = list(uni.get("helpers", [])) + [w["sym"] for w in uni["watch"]]
-    for rel in ["data/manifest.json", "data/fund.json", "data/fund_status.json", "data/corp_codes.json"]:
+    for rel in ["data/manifest.json", "data/fund.json", "data/fund_status.json", "data/corp_codes.json", "data/macro.json"]:
         try:
             save(rel[len("data/"):], get(base + rel))
             got += 1

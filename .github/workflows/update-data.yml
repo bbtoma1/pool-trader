@@ -46,6 +46,10 @@ jobs:
       - name: 시세 갱신
         run: python tools/update_data.py
 
+      - name: 거시 지표 갱신 (FRED, 접근이 막혀도 기존 값 유지)
+        continue-on-error: true
+        run: python tools/update_macro.py
+
       - name: 국내 적정가 갱신 (일요일 또는 수동 실행 때만)
         if: ${{ github.event.schedule == '0 23 * * 0' || inputs.fund == true }}
         continue-on-error: true   # 키가 없거나 호출 제한이면 기존 값을 유지하고 배포는 계속한다

@@ -17,6 +17,7 @@ data/manifest.json
 data/fund.json
 data/fund_status.json
 data/corp_codes.json
+data/macro.json
 
 # 개발 도구 설정
 .claude/
