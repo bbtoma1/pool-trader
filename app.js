@@ -47,7 +47,10 @@
           .catch(function () { return idbGet(sym).then(function (j) { if (j) { S.ser[sym] = j; S.src[sym] = 'cache'; } }); });
       }));
     }).then(function () { return getJson('data/fund.json').catch(function () { return {}; }); }).then(function (f) {
-      S.fund = f || {}; compute(); chip(); render();
+      S.fund = f || {};
+      return Promise.all([getJson('data/tracker_kr.json').catch(function () { return null; }), getJson('data/tracker_status.json').catch(function () { return null; })]);
+    }).then(function (t) {
+      S.trk = t[0]; S.trkSt = t[1]; compute(); chip(); render();
     }).catch(function (e) {
       $('#fresh').textContent = '데이터 없음'; $('#fresh').className = 'chip late';
       $('#view').innerHTML = '<div class="note">데이터를 불러오지 못했습니다. <code>python tools/update_data.py</code> 실행 후 <code>python server.py</code> 로 열어 주세요. (' + esc(e.message) + ')</div>';
@@ -90,6 +93,7 @@
     if (S.tab === 'today') v.innerHTML = viewToday();
     else if (S.tab === 'stock') { v.innerHTML = viewStock(); drawChart(); }
     else if (S.tab === 'market') v.innerHTML = viewMarket();
+    else if (S.tab === 'tracker') v.innerHTML = viewTracker();
     else if (S.tab === 'verify') { v.innerHTML = viewVerify(); bindCost(); if (!S.bt && !S.btBusy) runBt(false); }
     else { v.innerHTML = viewAcct(); bindAcct(); calcAcct(); }
     window.scrollTo(0, 0);
@@ -130,6 +134,64 @@
     var calOn = S.useCal && S.calib && S.calib.res && ['KR'].filter(function (m) { return S.calib.res[m] && S.calib.res[m].adopted; });
     html += '<div class="note">' + (calOn && calOn.length ? '자동 보정값 사용 중. ' : '') + '점수는 과거 하락 구간의 겹침 정도를 숫자로 만든 것이며 투자 권유가 아닙니다. 신규/지속 구분은 참고용입니다: 이 앱의 검증에서는 신규 구간이 지속 구간보다 뚜렷하게 좋지 않았습니다(검증 탭 "경과별"). 검증 탭에서 기준선 대비 효과를 확인하세요.</div>';
     return html + foot();
+  }
+
+  /* ---- 거물·공시(DART) ---- */
+  function fmtN(v) { return Math.round(v).toLocaleString('ko-KR'); }
+  function mergeExec(items) { // 같은 종목·보고자·날짜의 소유보고는 합쳐서 보여 준다
+    var map = {}, out = [];
+    items.forEach(function (x) {
+      if (x.kind !== 'exec') { out.push(x); return; }
+      var k = x.sym + '|' + x.person + '|' + x.date, m = map[k];
+      if (!m) { m = map[k] = Object.assign({}, x, { n: 0, change: 0 }); out.push(m); }
+      m.n++; m.change += x.change; m.after = x.after;
+    });
+    return out;
+  }
+  function trkLine(x) {
+    if (x.kind === 'exec') return esc(x.person) + (x.role ? '(' + esc(x.role) + ')' : '') + ' · 보유 ' + (x.change > 0 ? '+' : '') + fmtN(x.change) + '주 → ' + fmtN(x.after) + '주' + (x.n > 1 ? ' (' + x.n + '건 합산)' : '');
+    if (x.kind === 'major') return esc(x.person) + ' · 5% 대량보유 ' + esc(x.role) + ' · 보유 ' + esc(x.rate) + '%' + (x.rateChg && Number(x.rateChg) ? ' (' + (Number(x.rateChg) > 0 ? '+' : '') + Number(x.rateChg).toFixed(2) + '%p)' : '') + (x.reason ? '<div class="hint">' + esc(x.reason.replace(/\s*\n\s*/g, ' / ')) + '</div>' : '');
+    return esc(x.title);
+  }
+  function trkBadge(x) {
+    if (x.kind === 'exec') return '<span class="badge ' + (x.change > 0 ? 't1' : '') + '">내부자 ' + (x.change > 0 ? '증가' : x.change < 0 ? '감소' : '변동') + '</span>';
+    if (x.kind === 'major') return '<span class="badge">대량보유</span>';
+    return '<span class="badge ' + (x.tone === 'risk' ? 'hot' : '') + '">' + esc(x.tag) + '</span>';
+  }
+  function trkCard(x, showName) {
+    return '<div class="card" style="margin-bottom:8px"><div class="hint">' + esc(x.date) + (showName ? ' · <b>' + esc(x.name) + '</b>' : '') + ' · ' + trkBadge(x) + '</div><div>' + trkLine(x) + '</div><a href="' + esc(x.url) + '" target="_blank" rel="noopener" class="hint">DART 원문 ↗</a></div>';
+  }
+  function trkFor(sym, n) { return S.trk && S.trk.items ? mergeExec(S.trk.items.filter(function (x) { return x.sym === sym; })).slice(0, n) : []; }
+  function viewTracker() {
+    var html = '<h2>거물·공시</h2><p class="hint">DART 공시를 종목별로 모았습니다(국내 개별주 12종목). 내부자·대량보유 거래의 방향은 <b>참고 정보</b>이며 검증하지 못해 매수 점수에는 반영하지 않습니다.</p>';
+    var st = S.trkSt;
+    if (!S.trk || !S.trk.items) return html + '<div class="note">공시 데이터를 아직 받지 못했습니다. <code>DART_API_KEY</code> 를 설정하고 <code>python tools/tracker_kr.py</code> 를 실행하거나, 배포 환경의 첫 실행을 기다려 주세요.</div>' + foot();
+    var age = (Date.now() / 1000 - S.trk.updated) / 3600;
+    html += '<div class="hint">수집 ' + new Date(S.trk.updated * 1000).toLocaleString('ko-KR') + ' (' + (age < 1 ? '방금' : age < 48 ? Math.floor(age) + '시간 전' : Math.floor(age / 24) + '일 전') + ') · 최근 ' + S.trk.windowDays + '일'
+      + (st && st.limited ? ' · <span class="badge hot">DART 호출 제한 — 마지막 정상 데이터</span>' : '') + (st && st.fails && st.fails.length ? ' · 일부 종목 실패 ' + st.fails.length + '건' : '') + '</div>';
+    var f = S.trkFilter || 'all', a = loadAcct();
+    var chips = [['all', '전체'], ['risk', '주의 공시'], ['exec', '내부자'], ['major', '대량보유'], ['mine', '내 보유 종목']];
+    html += '<div class="chips" style="margin-top:10px">' + chips.map(function (c) { return '<button type="button" data-trk="' + c[0] + '" class="' + (c[0] === f ? 'on' : '') + '">' + c[1] + '</button>'; }).join('') + '</div>';
+    // 최근 30일 내부자 순증감 요약
+    var lim = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10), sum = {};
+    S.trk.items.forEach(function (x) { if (x.kind === 'exec' && x.date >= lim) { var s = sum[x.sym] = sum[x.sym] || { name: x.name, up: 0, dn: 0, net: 0 }; if (x.change > 0) s.up++; else if (x.change < 0) s.dn++; s.net += x.change; } });
+    var keys = Object.keys(sum).sort(function (p, q) { return sum[q].up + sum[q].dn - sum[p].up - sum[p].dn; });
+    if (keys.length && (f === 'all' || f === 'exec')) {
+      html += '<div class="hint">최근 30일 내부자(임원·주요주주) 보유 변동</div><div class="tablebox"><table style="min-width:420px"><thead><tr><th>종목</th><th>증가 건</th><th>감소 건</th><th>순증감(주)</th></tr></thead><tbody>'
+        + keys.map(function (k) { var s = sum[k]; return '<tr><td>' + esc(s.name) + '</td><td class="num">' + s.up + '</td><td class="num">' + s.dn + '</td><td class="num ' + cls(s.net) + '">' + (s.net > 0 ? '+' : '') + fmtN(s.net) + '</td></tr>'; }).join('')
+        + '</tbody></table></div><div class="hint">증가·감소에는 스톡옵션 행사, 보상 지급, 증여, 계열사 간 이전 등이 섞여 있어 시장 매수·매도와 다릅니다. 사유는 DART 원문에서 확인하세요.</div>';
+    }
+    var items = mergeExec(S.trk.items).filter(function (x) {
+      if (f === 'risk') return x.kind === 'filing' && x.tone === 'risk';
+      if (f === 'exec') return x.kind === 'exec';
+      if (f === 'major') return x.kind === 'major';
+      if (f === 'mine') return holdQty(x.sym, a) > 0;
+      return true;
+    });
+    if (f === 'mine' && !items.length) html += '<div class="note">보유 수량이 입력된 종목의 공시가 없습니다. 내 계좌에서 보유 수량이나 매매 기록을 입력하세요.</div>';
+    html += '<h3>' + (f === 'risk' ? '주의 공시' : '최근 순') + ' <span class="muted">(' + Math.min(items.length, 60) + '/' + items.length + '건)</span></h3>' + items.slice(0, 60).map(function (x) { return trkCard(x, true); }).join('');
+    if (!items.length && f !== 'mine') html += '<div class="card muted">해당하는 항목이 없습니다.</div>';
+    return html + '<div class="note">공시 제목 키워드로 "주의"(유상증자·CB·횡령·감자 등)를 분류했습니다. 분류가 틀릴 수 있고, 원문 내용은 직접 확인해야 합니다. 투자 권유가 아닙니다.</div>' + foot();
   }
 
   /* ---- 시장 국면 ---- */
@@ -221,6 +283,9 @@
       else if (w.market === 'KR' && w.group === 'stock') html += '<div class="note">이 종목의 적정가가 아직 없습니다. DART 인증키를 설정하고 <code>python tools/fund_kr.py</code> 를 실행하세요.</div>';
       else html += '<div class="hint">이 종목은 적정가 계산 대상이 아닙니다(국내 개별주만 지원).</div>';
     }
+    var tr = trkFor(w.sym, 6);
+    if (tr.length) html += '<h3>최근 공시·내부자 <span class="muted">(DART, 참고 정보)</span></h3>' + tr.map(function (x) { return trkCard(x, false); }).join('') + '<div class="hint"><a href="#" data-trkgo="' + esc(w.sym) + '">거물 탭에서 전체 보기</a></div>';
+    else if (w.group === 'stock' && S.trk) html += '<div class="hint">최근 ' + S.trk.windowDays + '일 안에 이 종목의 수집된 공시가 없습니다.</div>';
     return html + foot();
   }
 
@@ -497,6 +562,10 @@
     if (s) { S.sel = s.getAttribute('data-sym'); if (S.tab === 'today') { S.tab = 'stock'; document.querySelectorAll('#tabs button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-t') === 'stock'); }); } render(); return; }
     if (e.target.id === 'rerun') runBt(true);
     if (e.target.id === 'logAdd') addLog();
+    var tg = e.target.closest('[data-trkgo]');
+    if (tg) { e.preventDefault(); S.trkFilter = 'all'; S.tab = 'tracker'; document.querySelectorAll('#tabs button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-t') === 'tracker'); }); render(); return; }
+    var tk = e.target.closest('[data-trk]');
+    if (tk) { S.trkFilter = tk.getAttribute('data-trk'); render(); return; }
     var ls = e.target.closest('[data-logsym]');
     if (ls) { S.logSym = ls.getAttribute('data-logsym'); S.tab = 'acct'; document.querySelectorAll('#tabs button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-t') === 'acct'); }); render(); return; }
     var ld = e.target.closest('[data-logdel]');

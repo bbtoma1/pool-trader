@@ -17,6 +17,8 @@ data/manifest.json
 data/fund.json
 data/fund_status.json
 data/corp_codes.json
+data/tracker_kr.json
+data/tracker_status.json
 
 # 개발 도구 설정
 .claude/

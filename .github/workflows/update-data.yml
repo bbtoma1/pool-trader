@@ -45,6 +45,12 @@ jobs:
       - name: 시세 갱신
         run: python tools/update_data.py
 
+      - name: 국내 공시·내부자·대량보유 수집 (DART, 막히면 기존 값 유지)
+        continue-on-error: true
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+        run: python tools/tracker_kr.py
+
       - name: 국내 적정가 갱신 (일요일 또는 수동 실행 때만)
         if: ${{ github.event.schedule == '0 23 * * 0' || inputs.fund == true }}
         continue-on-error: true   # 키가 없거나 호출 제한이면 기존 값을 유지하고 배포는 계속한다
