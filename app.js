@@ -598,7 +598,7 @@
     var tail = (ongoingN ? '<div class="hint">지속 중인 신호 ' + ongoingN + '종목은 신규 진입 우위가 낮아 배분하지 않았습니다.</div>' : '') + (done.length ? '<div class="hint">이미 집행한 차수라 제외: ' + esc(done.join(', ')) + '</div>' : '');
     out.innerHTML = (cand.length ? head + html : '<div class="card muted">지금 새로 추천할 신호가 없습니다.</div>') + tail;
   }
-  function foot() { return '<footer>정보 제공용이며 투자 권유가 아닙니다. 시세는 지연·오차가 있을 수 있고 과거 검증은 미래를 보장하지 않습니다.</footer>'; }
+  function foot() { return '<footer>정보 제공용이며 투자 권유가 아닙니다. 시세는 지연·오차가 있을 수 있고 과거 검증은 미래를 보장하지 않습니다. · <a href="guide.html">설치·사용 안내</a></footer>'; }
 
   /* ---- 이벤트 ---- */
   document.addEventListener('toggle', function (e) { if (e.target && e.target.id === 'editBox') S.editOpen = e.target.open; }, true);
