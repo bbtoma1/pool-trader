@@ -4,7 +4,7 @@
  */
 (function (root) {
   'use strict';
-  var E = { VERSION: 5 };
+  var E = { VERSION: 6 };
 
   /* ---------- 지표 ---------- */
   function sma(c, n) {
@@ -85,39 +85,102 @@
     return out;
   }
 
+  // 200주선: 완료된 199주 종가 + 진행 중인 주의 현재가 평균(룩어헤드 없음)
+  function weeklySma(dates, c, n) {
+    var out = new Array(c.length).fill(null), ps = [0], lastW = null;
+    for (var i = 0; i < c.length; i++) {
+      var k = weekKey(dates[i]);
+      if (k !== lastW) { if (lastW !== null) ps.push(ps[ps.length - 1] + c[i - 1]); lastW = k; }
+      var done = ps.length - 1;
+      if (done >= n - 1) out[i] = (ps[done] - ps[done - (n - 1)] + c[i]) / n;
+    }
+    return out;
+  }
+
   /* ---------- 시장 컨텍스트 ---------- */
-  // 시장별로 분리: US 는 VIX, KR 는 지수의 20일 실현변동성(연환산) 백분위.
-  function buildMarket(kind, idx, volSeries) {
-    var n = idx.c.length, vol = new Array(n).fill(null), dd = new Array(n).fill(0), i;
+  // 시장별로 분리: US 는 VIX(+VIX3M), KR 는 지수의 20일 실현변동성(연환산) 백분위. 시장 폭·자체 공포지수는 두 시장 공통 방식.
+  function lastKnown(idxDates, s) { // 지수 날짜에 맞춰 직전 값으로 정렬
+    var out = new Array(idxDates.length).fill(null), p = -1;
+    for (var i = 0; i < idxDates.length; i++) {
+      while (p + 1 < s.d.length && s.d[p + 1] <= idxDates[i]) p++;
+      out[i] = p >= 0 ? s.c[p] : null;
+    }
+    return out;
+  }
+  function percentileSeries(vals, minHist) { // 해당 시점까지의 이력 안에서 백분위
+    var pct = new Array(vals.length).fill(null), sorted = [];
+    for (var i = 0; i < vals.length; i++) {
+      var v = vals[i]; if (v == null) continue;
+      var lo = 0, hi = sorted.length;
+      while (lo < hi) { var m = (lo + hi) >> 1; if (sorted[m] <= v) lo = m + 1; else hi = m; }
+      if (sorted.length >= minHist) pct[i] = lo / sorted.length;
+      sorted.splice(lo, 0, v);
+    }
+    return pct;
+  }
+  function breadthSeries(idxDates, sectors) { // 섹터 ETF 중 52주 고점 대비 -10% 이하 비율
+    var out = new Array(idxDates.length).fill(null);
+    if (!sectors || sectors.length < 3) return out;
+    var flags = sectors.map(function (s) { var mx = rollMax(s.c, 252); return s.c.map(function (v, j) { return v / mx[j] - 1 <= -0.10 ? 1 : 0; }); });
+    var ptr = sectors.map(function () { return -1; });
+    for (var i = 0; i < idxDates.length; i++) {
+      var cnt = 0, tot = 0;
+      for (var k = 0; k < sectors.length; k++) {
+        var d = sectors[k].d;
+        while (ptr[k] + 1 < d.length && d[ptr[k] + 1] <= idxDates[i]) ptr[k]++;
+        if (ptr[k] >= 60) { tot++; cnt += flags[k][ptr[k]]; }
+      }
+      out[i] = tot >= 3 ? cnt / tot : null;
+    }
+    return out;
+  }
+  function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+  function buildMarket(kind, idx, volSeries, extra) {
+    extra = extra || {};
+    var n = idx.c.length, vol = new Array(n).fill(null), dd = new Array(n).fill(0), i, pct, term = null;
     var mx = rollMax(idx.c, 252);
     for (i = 0; i < n; i++) dd[i] = 1 - idx.c[i] / mx[i];
     if (kind === 'vix' && volSeries) {
-      var map = {}; volSeries.d.forEach(function (d, j) { map[d] = volSeries.c[j]; });
-      var last = null;
-      for (i = 0; i < n; i++) { if (map[idx.d[i]] != null) last = map[idx.d[i]]; vol[i] = last; }
-      return { kind: 'vix', vol: vol, dd: dd, dates: idx.d };
+      vol = lastKnown(idx.d, volSeries);
+      pct = percentileSeries(vol, 250);
+      if (extra.vix3m) {
+        var v3 = lastKnown(idx.d, extra.vix3m);
+        term = vol.map(function (v, j) { return v != null && v3[j] ? v / v3[j] : null; });
+      }
+    } else {
+      // 실현변동성 백분위(해당 시점까지의 이력 안에서만 계산)
+      for (i = 20; i < n; i++) {
+        var s = 0, s2 = 0;
+        for (var j = i - 19; j <= i; j++) { var r = Math.log(idx.c[j] / idx.c[j - 1]); s += r; s2 += r * r; }
+        var m = s / 20; vol[i] = Math.sqrt(Math.max(0, s2 / 20 - m * m)) * Math.sqrt(252) * 100;
+      }
+      pct = percentileSeries(vol, 250);
     }
-    // 실현변동성 백분위(해당 시점까지의 이력 안에서만 계산)
-    var rv = new Array(n).fill(null);
-    for (i = 20; i < n; i++) {
-      var s = 0, s2 = 0;
-      for (var j = i - 19; j <= i; j++) { var r = Math.log(idx.c[j] / idx.c[j - 1]); s += r; s2 += r * r; }
-      var m = s / 20; rv[i] = Math.sqrt(Math.max(0, s2 / 20 - m * m)) * Math.sqrt(252) * 100;
+    var brd = breadthSeries(idx.d, extra.sectors), r14 = rsi(idx.c, 14), ma125 = sma(idx.c, 125), fear = new Array(n).fill(null);
+    for (i = 0; i < n; i++) { // 자체 공포지수 0~100(높을수록 공포): 변동성 백분위·지수 낙폭·RSI·125일선 이격·시장 폭의 평균
+      var parts = [];
+      if (pct[i] != null) parts.push(pct[i]);
+      parts.push(clamp01(dd[i] / 0.2));
+      if (r14[i] != null) parts.push(clamp01((60 - r14[i]) / 30));
+      if (ma125[i]) parts.push(clamp01(-(idx.c[i] / ma125[i] - 1) / 0.08));
+      if (brd[i] != null) parts.push(clamp01(brd[i] / 0.5));
+      if (parts.length >= 3) fear[i] = 100 * parts.reduce(function (a, b) { return a + b; }, 0) / parts.length;
     }
-    var pct = new Array(n).fill(null), hist = [];
-    for (i = 0; i < n; i++) {
-      if (rv[i] == null) continue;
-      if (hist.length >= 250) { var below = 0; for (var h = 0; h < hist.length; h++) if (hist[h] <= rv[i]) below++; pct[i] = below / hist.length; }
-      hist.push(rv[i]);
-    }
-    return { kind: 'realized', vol: rv, pct: pct, dd: dd, dates: idx.d };
+    return { kind: kind === 'vix' && volSeries ? 'vix' : 'realized', vol: vol, pct: pct, dd: dd, brd: brd, term: term, fear: fear, dates: idx.d };
   }
   function marketAt(mk, date) { // 날짜로 컨텍스트 조회(해당일 이하 마지막 값)
     var a = mk.dates, lo = 0, hi = a.length - 1, r = -1;
     while (lo <= hi) { var m = (lo + hi) >> 1; if (a[m] <= date) { r = m; lo = m + 1; } else hi = m - 1; }
     if (r < 0) return null;
-    return { i: r, vol: mk.vol[r], pct: mk.pct ? mk.pct[r] : null, dd: mk.dd[r] };
+    return { i: r, vol: mk.vol[r], pct: mk.pct ? mk.pct[r] : null, dd: mk.dd[r], brd: mk.brd ? mk.brd[r] : null, term: mk.term ? mk.term[r] : null, fear: mk.fear ? mk.fear[r] : null };
   }
+  E.marketFromConfig = function (cfg, ser) { // 시장 설정(universe.json)으로 컨텍스트 생성
+    var idx = ser[cfg.index]; if (!idx) return null;
+    return buildMarket(cfg.volType, idx, cfg.vol ? ser[cfg.vol] : null, {
+      vix3m: cfg.vix3m ? ser[cfg.vix3m] : null,
+      sectors: (cfg.breadth || []).map(function (s) { return ser[s]; }).filter(Boolean)
+    });
+  };
 
   /* ---------- 준비/신호 ---------- */
   E.prepare = function (s) {
@@ -126,19 +189,22 @@
     var sig = ema(macd.map(function (v) { return v == null ? 0 : v; }), 9);
     return {
       s: s, sma20: sma(c, 20), sma200: sma(c, 200), rsi: rsi(c, 14), wrsi: weeklyRsi(s.d, c, 14),
-      max252: rollMax(c, 252), min252: rollMin(c, 252), macd: macd, macdSig: sig, fairAdj: null
+      max252: rollMax(c, 252), min252: rollMin(c, 252), macd: macd, macdSig: sig, fairAdj: null,
+      w200: weeklySma(s.d, c, 200)
     };
   };
   function step(v, pts) { // pts: [[임계, 강도], ...] 임계 내림차순
     for (var i = 0; i < pts.length; i++) if (v >= pts[i][0]) return pts[i][1];
     return 0;
   }
-  var W = { dd: 25, dev: 10, wrsi: 15, rsi: 5, macd: 10, vol: 20, idx: 15 };
+  // 가중치 합계 100. 시장에 데이터가 없는 신호(na)는 점수 계산에서 빼고 나머지로 정규화한다.
+  var W = { dd: 16, dev: 7, wrsi: 10, rsi: 4, macd: 6, vol: 15, idx: 8, brd: 10, fear: 8, term: 6, sea: 3, w200: 4, brk: 3 };
   E.WEIGHTS = W;
+  E.KEYS = ['dd', 'dev', 'wrsi', 'rsi', 'macd', 'vol', 'idx', 'brd', 'fear', 'term', 'sea', 'w200', 'brk'];
 
   E.signalsAt = function (P, i, mk, lev, weights) {
     var w = weights || W, s = P.s, c = s.c[i], L = Math.max(1, lev || 1), out = [];
-    function add(key, label, strength, detail) { out.push({ key: key, label: label, strength: strength, weight: w[key], detail: detail }); }
+    function add(key, label, strength, detail, na) { out.push({ key: key, label: label, strength: strength, weight: w[key] != null ? w[key] : W[key], detail: detail, na: !!na }); }
     var dd = (1 - c / P.max252[i]) / L;
     add('dd', '낙폭(52주 고점 대비' + (L > 1 ? ', 배율 환산' : '') + ')', step(dd, [[.3, 1], [.2, .8], [.1, .48]]), (dd * 100).toFixed(1) + '%');
     var dev = P.sma200[i] ? c / P.sma200[i] - 1 : null; var devL = dev == null ? null : dev / L;
@@ -162,6 +228,20 @@
     }
     var idd = m ? m.dd : 0;
     add('idx', '시장 지수 낙폭', step(idd, [[.2, 1], [.1, .5]]), (idd * 100).toFixed(1) + '%');
+    var us = mk.kind === 'vix';
+    var bd = m ? m.brd : null;
+    add('brd', '시장 폭(섹터 ETF 중 52주 고점 -10%↓ 비율)', bd == null ? 0 : step(bd, [[.5, 1], [.3, .6], [.2, .3]]), bd == null ? '데이터 없음' : (bd * 100).toFixed(0) + '%', bd == null);
+    var fr = m ? m.fear : null;
+    add('fear', '자체 공포지수(0~100, 높을수록 공포)', fr == null ? 0 : step(fr, [[75, 1], [60, .5]]), fr == null ? '이력 부족' : fr.toFixed(0), fr == null);
+    var tm = m ? m.term : null;
+    add('term', 'VIX 기간구조 역전(VIX/VIX3M)', tm == null ? 0 : step(tm, [[1, 1], [.95, .5]]), tm == null ? (us ? '데이터 없음' : '국내 미적용') : tm.toFixed(2), tm == null);
+    var dt = s.d[i], yy = +dt.slice(0, 4), mo = +dt.slice(5, 7), mid = (yy % 4 === 2 && mo >= 10) || (yy % 4 === 3 && mo <= 6);
+    add('sea', '계절성(미국 중간선거 4분기~이듬해 상반기)', us && mid ? 1 : 0, us ? (mid ? '해당 구간' : '해당 없음') : '국내 미적용', !us);
+    var w2 = P.w200 ? P.w200[i] : null, d2 = w2 ? c / w2 - 1 : null;
+    add('w200', '200주선 근접(±10% 이내 1, ±20% 이내 0.5)', d2 == null ? 0 : Math.abs(d2) <= .1 ? 1 : Math.abs(d2) <= .2 ? .5 : 0, d2 == null ? '이력 부족(약 4년 필요)' : (d2 * 100).toFixed(1) + '%', d2 == null);
+    var hi15 = -Infinity; for (var q = Math.max(0, i - 15); q < i; q++) if (s.c[q] > hi15) hi15 = s.c[q];
+    var brk = i >= 15 && c > hi15 && (1 - c / P.max252[i]) >= .1;
+    add('brk', '하락 추세 돌파(낙폭 10%↑ 구간에서 15일 고점 상향 돌파)', brk ? .6 : 0, brk ? '돌파' : '없음');
     return out;
   };
 
@@ -171,7 +251,9 @@
     opt = opt || {};
     var lev = opt.lev || 1, th = opt.th || E.DEFAULT_TH;
     var sg = E.signalsAt(P, i, mk, lev, opt.weights), score = 0;
-    sg.forEach(function (x) { score += x.strength * x.weight; });
+    var availW = 0;
+    sg.forEach(function (x) { if (!x.na) { score += x.strength * x.weight; availW += x.weight; } });
+    if (availW > 0) score = score * 100 / availW; // 이 시장에 없는 신호를 뺀 나머지로 정규화
     score = Math.min(100, Math.round(score * 10) / 10);
     var wr = P.wrsi[i], overheat = wr != null && wr >= 70;
     var tier = score >= th[2] ? 3 : score >= th[1] ? 2 : score >= th[0] ? 1 : 0;

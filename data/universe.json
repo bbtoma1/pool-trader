@@ -1,10 +1,12 @@
 {
   "version": 2,
   "markets": {
-    "US": { "currency": "USD", "index": "^GSPC", "vol": "^VIX", "volType": "vix" },
-    "KR": { "currency": "KRW", "index": "^KS11", "vol": null, "volType": "realized" }
+    "US": { "currency": "USD", "index": "^GSPC", "vol": "^VIX", "vix3m": "^VIX3M", "volType": "vix",
+            "breadth": ["XLK", "XLF", "XLE", "XLV", "XLY", "XLP", "XLI", "XLU", "XLB"] },
+    "KR": { "currency": "KRW", "index": "^KS11", "vol": null, "volType": "realized",
+            "breadth": ["091160.KS", "091170.KS", "091180.KS", "117460.KS", "117680.KS", "117700.KS", "102970.KS"] }
   },
-  "helpers": ["^GSPC", "^VIX", "^KS11", "^KQ11"],
+  "helpers": ["^GSPC", "^VIX", "^VIX3M", "^KS11", "^KQ11"],
   "watch": [
     { "sym": "SPY",  "name": "S&P500 ETF",          "market": "US", "lev": 1, "group": "index" },
     { "sym": "QQQ",  "name": "나스닥100 ETF",        "market": "US", "lev": 1, "group": "index" },

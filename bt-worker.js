@@ -61,14 +61,14 @@ function simulate(c, tierArr, i0, feeRate, sellRate) {
 }
 
 function analyze(list, ser, mk, fund, lens, costs) {
-  var sims = [];
+  var sims = [], ageB = [[], [], []]; // 신호 지속 일수별 60일 수익률: 0~10일(신규), 11~30일, 31일 이상
   var tiers = { 1: { all: [], oos: [], mae: [] }, 2: { all: [], oos: [], mae: [] }, 3: { all: [], oos: [], mae: [] } };
   var base = { all: {}, oos: {} }; H.forEach(function (h) { base.all[h] = []; base.oos[h] = []; });
   var fw = {}; H.forEach(function (h) { fw[h] = { 1: [], 2: [], 3: [] }; });
   var names = [];
   list.forEach(function (w) {
     var s = ser[w.sym], P = Engine.attachFund(Engine.prepare(s), fund[w.sym]), n = s.c.length; names.push(w.sym);
-    var split = Math.floor(260 + (n - 260) * 0.7), seen = { 1: -1e9, 2: -1e9, 3: -1e9 }, quiet = 999, tierArr = new Array(n).fill(0);
+    var split = Math.floor(260 + (n - 260) * 0.7), seen = { 1: -1e9, 2: -1e9, 3: -1e9 }, quiet = 999, tierArr = new Array(n).fill(0), start = -1;
     for (var i = 260; i < n - 2; i++) {
       var r = Engine.evaluateBy(lens, P, i, mk, { lev: w.lev });
       tierArr[i] = r.tier;
@@ -78,6 +78,9 @@ function analyze(list, ser, mk, fund, lens, costs) {
         base.all[h].push(f); if (oos) base.oos[h].push(f);
       });
       if (r.tier === 0) { quiet++; continue; }
+      if (quiet >= 20 || start < 0) start = i; // 신호 구간(웅덩이)의 시작일
+      var fAge = Engine.fwd(s.c, i, 60);
+      if (fAge != null) { var ag = i - start; ageB[ag <= 10 ? 0 : ag <= 30 ? 1 : 2].push(fAge); }
       // 새 웅덩이: 신호가 없던 날이 20일 이상 이어진 뒤의 첫 진입
       for (var t = 1; t <= r.tier; t++) {
         if (i - seen[t] > 20 && (quiet >= 20 || seen[t] < 0)) {
@@ -93,7 +96,7 @@ function analyze(list, ser, mk, fund, lens, costs) {
     var tax = w.market === 'KR' && w.group !== 'stock' ? 0 : cm.tax; // 국내 ETF 는 거래세 면제
     sims.push(simulate(s.c, tierArr, 260, cm.fee / 100, tax / 100));
   });
-  var out = { symbols: names, tiers: {}, base: {}, sim: aggSim(sims), costs: costs };
+  var out = { symbols: names, tiers: {}, base: {}, sim: aggSim(sims), costs: costs, age: { fresh: stats(ageB[0]), mid: stats(ageB[1]), old: stats(ageB[2]) } };
   [1, 2, 3].forEach(function (t) {
     out.tiers[t] = { all: stats(tiers[t].all), oos: stats(tiers[t].oos), mae: tiers[t].mae.length ? tiers[t].mae.reduce(function (a, b) { return a + b; }, 0) / tiers[t].mae.length : null, byH: {} };
     H.forEach(function (h) { out.tiers[t].byH[h] = stats(fw[h][t]); });
@@ -136,7 +139,7 @@ function edgeAnalyze(list, ser, mk, fund) {
       var f = Engine.fwd(s.c, i, 60); if (f == null) continue; f /= L;
       var half = i < mid ? 0 : 1;
       var e = Engine.evaluate(P, i, mk, { lev: w.lev });
-      e.signals.forEach(function (g) { push('p_' + g.key, '웅덩이 · ' + g.label, g.strength > 0, f, half); });
+      e.signals.forEach(function (g) { if (!g.na) push('p_' + g.key, '웅덩이 · ' + g.label, g.strength > 0, f, half); });
       push('p_tier', '웅덩이 · 종합 1차 이상', e.tier >= 1, f, half);
       var d = Engine.evaluateDoki(P, i, mk, { lev: w.lev });
       d.signals.forEach(function (g) { if (!g.na) push('d_' + g.key, '도키 · ' + g.label, g.strength > 0, f, half); });
@@ -160,8 +163,8 @@ function edgeAnalyze(list, ser, mk, fund) {
  * - 임계값: 1차 30~65(5 단위), 차수 간격 10/15/20 격자 탐색. 학습 구간 이벤트 초과수익의 z 가 가장 큰 값(이벤트 30건 이상)
  * - 채택 시 기본값 쪽으로 50% 되돌려(수축) 안정화한 값을 쓴다. 채택 조건: 검증 구간 초과수익이 기본값보다 크고 0보다 클 것
  * 현재 범위는 웅덩이 관점의 7개 신호다. */
-var KEYS = ['dd', 'dev', 'wrsi', 'rsi', 'macd', 'vol', 'idx'];
-var DEFW = [25, 10, 15, 5, 10, 20, 15], DEFTH = [40, 55, 70];
+var KEYS = Engine.KEYS;
+var DEFW = KEYS.map(function (k) { return Engine.WEIGHTS[k]; }), DEFTH = [40, 55, 70];
 function clampN(v, a, b) { return Math.max(a, Math.min(b, v)); }
 function normW(w) { var s = w.reduce(function (a, b) { return a + b; }, 0); return w.map(function (v) { return v * 100 / s; }); }
 function buildRows(list, ser, mk) {
@@ -169,10 +172,10 @@ function buildRows(list, ser, mk) {
     var s = ser[w.sym], P = Engine.prepare(s), n = s.c.length, L = Math.max(1, w.lev || 1), split = Math.floor(260 + (n - 260) * 0.7), rows = [];
     for (var i = 260; i < n - 62; i++) {
       var f = Engine.fwd(s.c, i, 60); if (f == null) continue;
-      var sg = Engine.signalsAt(P, i, mk, L), sv = new Array(KEYS.length).fill(0);
-      sg.forEach(function (g) { var k = KEYS.indexOf(g.key); if (k >= 0) sv[k] = g.strength; });
+      var sg = Engine.signalsAt(P, i, mk, L), sv = new Array(KEYS.length).fill(0), av = new Array(KEYS.length).fill(1);
+      sg.forEach(function (g) { var k = KEYS.indexOf(g.key); if (k >= 0) { sv[k] = g.strength; av[k] = g.na ? 0 : 1; } });
       var wr = P.wrsi[i];
-      rows.push({ s: sv, oh: wr != null && wr >= 70, fl: f / L, test: i >= split, L: L });
+      rows.push({ s: sv, av: av, oh: wr != null && wr >= 70, fl: f / L, test: i >= split, L: L });
     }
     return rows;
   });
@@ -186,8 +189,9 @@ function evalParams(syms, wv, th) {
   syms.forEach(function (rows) {
     var seen = -1e9, quiet = 999;
     for (var r = 0; r < rows.length; r++) {
-      var x = rows[r], sc = 0, k;
-      for (k = 0; k < wv.length; k++) sc += x.s[k] * wv[k];
+      var x = rows[r], sc = 0, aw = 0, k;
+      for (k = 0; k < wv.length; k++) { sc += x.s[k] * wv[k]; aw += x.av[k] * wv[k]; }
+      sc = aw > 0 ? sc * 100 / aw : 0; // 시장에 없는 신호를 뺀 나머지로 정규화(엔진과 같은 방식)
       if (sc > 100) sc = 100;
       var tier = sc >= th[2] ? 3 : sc >= th[1] ? 2 : sc >= th[0] ? 1 : 0;
       if (x.L >= 3 && tier > 2) tier = 2;
@@ -231,7 +235,7 @@ onmessage = function (ev) {
     ['US', 'KR'].forEach(function (mkName) {
       var cfg = uni.markets[mkName], idx = ser[cfg.index];
       if (!idx) { res[mkName] = { error: '지수 데이터 없음' }; return; }
-      var mk = Engine.buildMarket(cfg.volType, idx, cfg.vol ? ser[cfg.vol] : null);
+      var mk = Engine.marketFromConfig(cfg, ser);
       var list = uni.watch.filter(function (w) { return w.market === mkName && ser[w.sym] && w.group !== 'inverse'; });
       res[mkName] = calibrate(list, ser, mk);
     });
@@ -242,7 +246,7 @@ onmessage = function (ev) {
     ['US', 'KR'].forEach(function (mkName) {
       var cfg = uni.markets[mkName], idx = ser[cfg.index];
       if (!idx) { res[mkName] = { error: '지수 데이터 없음' }; return; }
-      var mk = Engine.buildMarket(cfg.volType, idx, cfg.vol ? ser[cfg.vol] : null);
+      var mk = Engine.marketFromConfig(cfg, ser);
       var list = uni.watch.filter(function (w) { return w.market === mkName && ser[w.sym] && w.group !== 'inverse'; });
       var neutral = list.filter(function (w) { return w.group === 'index' || w.group === 'sector'; });
       res[mkName] = { all: edgeAnalyze(list, ser, mk, fund), neutral: edgeAnalyze(neutral, ser, mk, fund), nAll: list.length, nNeutral: neutral.length };
@@ -254,7 +258,7 @@ onmessage = function (ev) {
   ['US', 'KR'].forEach(function (mkName) {
     var cfg = uni.markets[mkName], idx = ser[cfg.index];
     if (!idx) { res[mkName] = { error: '지수 데이터 없음: ' + cfg.index }; return; }
-    var mk = Engine.buildMarket(cfg.volType, idx, cfg.vol ? ser[cfg.vol] : null);
+    var mk = Engine.marketFromConfig(cfg, ser);
     var list = uni.watch.filter(function (w) {
       if (w.market !== mkName || !ser[w.sym] || w.group === 'inverse') return false;
       var f = fund[w.sym];
