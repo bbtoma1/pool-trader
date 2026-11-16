@@ -1,7 +1,9 @@
 """배포 폴더(_site)를 만든다: 앱 파일과 data/ 만 복사한다(tools, 서버, 문서, 비밀 파일은 제외)."""
 import os
+import re
 import shutil
 import sys
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "_site")
@@ -24,6 +26,20 @@ def main():
     for fn in os.listdir(px):
         shutil.copy2(os.path.join(px, fn), os.path.join(OUT, "data", "px", fn))
     open(os.path.join(OUT, ".nojekyll"), "w").close()
+    # 배포마다 스크립트·스타일 주소에 버전(?v=)을 붙여, 브라우저 캐시가 옛 파일을 섞어 쓰지 않게 한다
+    ts = str(int(time.time()))
+
+    def patch(name, fn):
+        p = os.path.join(OUT, name)
+        with open(p, "r", encoding="utf8") as f:
+            s = f.read()
+        s2 = fn(s)
+        with open(p, "w", encoding="utf8") as f:
+            f.write(s2)
+
+    patch("index.html", lambda s: re.sub(r'(src|href)="([A-Za-z0-9_\-]+\.(?:js|css))"', r'\1="\2?v=' + ts + '"', s))
+    patch("app.js", lambda s: s.replace("new Worker('bt-worker.js')", "new Worker('bt-worker.js?v=" + ts + "')"))
+    patch("bt-worker.js", lambda s: s.replace("importScripts('engine.js')", "importScripts('engine.js?v=" + ts + "')"))
     n = sum(len(fs) for _, _, fs in os.walk(OUT))
     print("_site 생성: 파일 %d개" % n)
     return 0
