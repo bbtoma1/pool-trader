@@ -500,6 +500,26 @@
     return html + edgeHtml() + calibHtml() + foot();
   }
 
+  /* ---- 화면 설정(색 테마·라이트/다크): 이 기기에만 저장 ---- */
+  var LOOK_KEY = 'trader-look-v1';
+  var THEMES = [['mint', '#0b8f82', '#35c9b5', '민트'], ['violet', '#6552d9', '#9a8cf2', '라벤더'], ['orange', '#d2590a', '#ffa24d', '오렌지'], ['slate', '#34507a', '#7893be', '슬레이트']];
+  function loadLook() { try { return JSON.parse(lsGet(LOOK_KEY) || '{}') || {}; } catch (e) { return {}; } }
+  function applyLook(L) {
+    var r = document.documentElement;
+    if (L.a && L.a !== 'mint') r.setAttribute('data-accent', L.a); else r.removeAttribute('data-accent');
+    if (L.m === 'light' || L.m === 'dark') r.setAttribute('data-mode', L.m); else r.removeAttribute('data-mode');
+    var meta = document.querySelector('meta[name=theme-color]'), c = getComputedStyle(r).getPropertyValue('--accent').trim();
+    if (meta && c) meta.setAttribute('content', c);
+  }
+  function lookCard() {
+    var L = loadLook(), cur = L.a || 'mint', mode = L.m || 'auto';
+    return '<h3>화면 설정</h3><div class="card"><div class="hint">색 테마</div><div class="swatches">' + THEMES.map(function (t) {
+      return '<button type="button" data-acc="' + t[0] + '" class="' + (cur === t[0] ? 'on' : '') + '" style="background:linear-gradient(135deg,' + t[1] + ',' + t[2] + ')" aria-label="' + t[3] + '" title="' + t[3] + '"></button>';
+    }).join('') + '</div><div class="hint">밝기</div><div class="seg" style="margin-top:6px">'
+      + [['auto', '자동'], ['light', '라이트'], ['dark', '다크']].map(function (m) { return '<button type="button" data-lookmode="' + m[0] + '" class="' + (mode === m[0] ? 'on' : '') + '">' + m[1] + '</button>'; }).join('')
+      + '</div><div class="hint" style="margin-top:8px">이 기기에만 저장됩니다. "자동"은 폰의 다크 모드 설정을 따릅니다.</div></div>';
+  }
+
   /* ---- 내 계좌 ---- */
   function loadAcct() { try { return Object.assign({ cashKRW: '', keep: 20, limit: 25, hold: {} }, JSON.parse(lsGet(ACCT_KEY) || '{}')); } catch (e) { return { cashKRW: '', keep: 20, limit: 25, hold: {} }; } }
   /* 매매 기록: 이 기기에만 저장. 보유 수량 = 기록 이전 보유분(직접 입력) + 기록의 순매수 수량 */
@@ -540,7 +560,7 @@
       + '<h3>보유 수량 <span class="muted" style="font-weight:400;font-size:13px">(기록 이전에 이미 갖고 있던 수량)</span></h3><div class="card"><div class="form">'
       + S.uni.watch.filter(function (w) { return S.ser[w.sym]; }).map(function (w) { return '<div><label for="h_' + esc(w.sym) + '">' + esc(w.name) + ' (주)</label><input id="h_' + esc(w.sym) + '" data-h="' + esc(w.sym) + '" type="number" inputmode="numeric" value="' + esc(a.hold[w.sym] || '') + '"></div>'; }).join('')
       + '</div></div><h3>권장 매수 상한</h3><div id="acctOut"></div>'
-      + '<div class="note">새로 켜진 신호(켜진 지 11거래일 이내)만 대상입니다. 가용 현금 = 현금 × (1 - 최소 유지 비율). 차수별 사용 비율은 1차 20%, 2차 30%, 3차 50%이고, <b>점수가 높은 종목부터 가용 현금 안에서 차례로 배분</b>합니다(합계가 가용 현금을 넘지 않음). 이미 집행한 차수는 다시 추천하지 않습니다. 현금은 직접 갱신하세요(기록은 현금을 자동으로 바꾸지 않습니다).</div>' + foot();
+      + '<div class="note">새로 켜진 신호(켜진 지 11거래일 이내)만 대상입니다. 가용 현금 = 현금 × (1 - 최소 유지 비율). 차수별 사용 비율은 1차 20%, 2차 30%, 3차 50%이고, <b>점수가 높은 종목부터 가용 현금 안에서 차례로 배분</b>합니다(합계가 가용 현금을 넘지 않음). 이미 집행한 차수는 다시 추천하지 않습니다. 현금은 직접 갱신하세요(기록은 현금을 자동으로 바꾸지 않습니다).</div>' + lookCard() + foot();
     return html;
   }
   function bindAcct() {
@@ -614,6 +634,11 @@
     if (s) { S.sel = s.getAttribute('data-sym'); if (S.tab === 'today') { S.tab = 'stock'; document.querySelectorAll('#tabs button').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-t') === 'stock'); }); } render(); return; }
     if (e.target.id === 'rerun') runBt(true);
     if (e.target.id === 'logAdd') addLog();
+    var acc = e.target.closest('[data-acc]'), lm = e.target.closest('[data-lookmode]');
+    if (acc || lm) {
+      var L = loadLook(); if (acc) L.a = acc.getAttribute('data-acc'); if (lm) L.m = lm.getAttribute('data-lookmode');
+      lsSet(LOOK_KEY, JSON.stringify(L)); applyLook(L); var y = window.scrollY; render(); window.scrollTo(0, y); return;
+    }
     var id = e.target.id;
     if (id === 'addQueue') {
       var code = (document.getElementById('addCode').value || '').trim().toUpperCase(), nm = (document.getElementById('addName').value || '').replace(/[^0-9A-Za-z가-힣 \-&.()+]/g, '').trim().slice(0, 30);
@@ -656,6 +681,7 @@
   window.addEventListener('resize', function () { if (S.tab === 'stock') drawChart(); });
   document.addEventListener('visibilitychange', function () { if (!document.hidden && S.uni) loadAll(); });
   if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) navigator.serviceWorker.register('sw.js').catch(function () { });
+  applyLook(loadLook());
   loadAll();
   window.__S = S; // 디버깅용
 })();
