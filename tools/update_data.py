@@ -108,13 +108,21 @@ def main():
         print("universe.json 을 읽을 수 없습니다")
         return 1
     targets = []
-    for h in uni.get("helpers", []):
-        mk = "KR" if h in ("^KS11", "^KQ11") else "US"
-        targets.append((h, mk, uni["markets"][mk]["currency"]))
+    for h in uni.get("helpers", []):  # 국내 시장 판단에 쓰는 글로벌 변수(금리·달러·환율·원자재·VIX 등)
+        mk = "KR" if h in ("^KS11", "^KQ11") else "GLOBAL"
+        targets.append((h, mk, "KRW" if mk == "KR" else "USD"))
     for w in uni["watch"]:
         targets.append((w["sym"], w["market"], uni["markets"][w["market"]]["currency"]))
 
     manifest = read_json(os.path.join(DATA, "manifest.json"), {"symbols": {}, "fails": []})
+    # 유니버스에서 빠진 종목의 시세 파일과 기록은 지운다(배포 폴더에 옛 파일이 남지 않게)
+    keep = {fname(s) for s, _, _ in targets}
+    if os.path.isdir(PX):
+        for fn in os.listdir(PX):
+            if fn.endswith(".json") and fn not in keep:
+                os.remove(os.path.join(PX, fn))
+                print("삭제 %s (유니버스에 없음)" % fn)
+    manifest["symbols"] = {k: v for k, v in manifest.get("symbols", {}).items() if fname(k) in keep}
     fails = []
     for sym, mk, cur in targets:
         try:

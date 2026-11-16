@@ -232,7 +232,7 @@ function calibrate(list, ser, mk) {
 onmessage = function (ev) {
   var in_ = ev.data, uni = in_.universe, ser = in_.series, res = {}, lens = in_.lens || 'pool', fund = in_.fund || {};
   if (in_.mode === 'calib') {
-    ['US', 'KR'].forEach(function (mkName) {
+    Object.keys(uni.markets).forEach(function (mkName) {
       var cfg = uni.markets[mkName], idx = ser[cfg.index];
       if (!idx) { res[mkName] = { error: '지수 데이터 없음' }; return; }
       var mk = Engine.marketFromConfig(cfg, ser);
@@ -243,7 +243,7 @@ onmessage = function (ev) {
     return;
   }
   if (in_.mode === 'edge') {
-    ['US', 'KR'].forEach(function (mkName) {
+    Object.keys(uni.markets).forEach(function (mkName) {
       var cfg = uni.markets[mkName], idx = ser[cfg.index];
       if (!idx) { res[mkName] = { error: '지수 데이터 없음' }; return; }
       var mk = Engine.marketFromConfig(cfg, ser);
@@ -254,8 +254,8 @@ onmessage = function (ev) {
     postMessage({ mode: 'edge', version: Engine.VERSION, res: res });
     return;
   }
-  var costs = in_.costs || { US: { fee: 0.1, tax: 0 }, KR: { fee: 0.015, tax: 0.15 } };
-  ['US', 'KR'].forEach(function (mkName) {
+  var costs = in_.costs || { KR: { fee: 0.015, tax: 0.15 } };
+  Object.keys(uni.markets).forEach(function (mkName) {
     var cfg = uni.markets[mkName], idx = ser[cfg.index];
     if (!idx) { res[mkName] = { error: '지수 데이터 없음: ' + cfg.index }; return; }
     var mk = Engine.marketFromConfig(cfg, ser);

@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   var $ = function (s) { return document.querySelector(s); };
-  var S = { uni: null, man: null, ser: {}, src: {}, mk: {}, ev: {}, mkt: 'ALL', lens: 'pool', fund: {}, tab: 'today', sel: null, bt: null, btBusy: false };
+  var S = { uni: null, man: null, ser: {}, src: {}, mk: {}, ev: {}, mkt: 'KR', lens: 'pool', fund: {}, tab: 'today', sel: null, bt: null, btBusy: false };
   var LENS = { pool: '웅덩이', doki: '도키', both: '통합' };
   var FRESH_DAYS = 10; // 신호가 켜진 뒤 이 거래일 수(0부터 세어 10 → 11번째 거래일)까지를 '신규'로 본다
   var CAL_KEY = 'trader-calib-v' + Engine.VERSION, USECAL_KEY = 'trader-usecal';
@@ -47,9 +47,8 @@
           .catch(function () { return idbGet(sym).then(function (j) { if (j) { S.ser[sym] = j; S.src[sym] = 'cache'; } }); });
       }));
     }).then(function () { return getJson('data/fund.json').catch(function () { return {}; }); }).then(function (f) {
-      S.fund = f || {};
-      return getJson('data/macro.json').catch(function () { return null; });
-    }).then(function (mc) { S.macro = mc; compute(); chip(); render(); }).catch(function (e) {
+      S.fund = f || {}; compute(); chip(); render();
+    }).catch(function (e) {
       $('#fresh').textContent = '데이터 없음'; $('#fresh').className = 'chip late';
       $('#view').innerHTML = '<div class="note">데이터를 불러오지 못했습니다. <code>python tools/update_data.py</code> 실행 후 <code>python server.py</code> 로 열어 주세요. (' + esc(e.message) + ')</div>';
     });
@@ -99,7 +98,7 @@
   function last(sym) { var s = S.ser[sym], i = s.c.length - 1; return { c: s.c[i], p: s.c[i - 1], d: s.d[i], raw: (s.raw || s.c)[i] }; }
 
   function viewToday() {
-    var html = '', mk = S.mkt === 'ALL' ? ['US', 'KR'] : [S.mkt];
+    var html = '', mk = ['KR'];
     mk.forEach(function (m) {
       var cfg = S.uni.markets[m], idx = S.ser[cfg.index], c = S.mk[m];
       if (!idx || !c) return;
@@ -128,8 +127,8 @@
     if (ongoing.length) html += '<h3>지속 중 <span class="muted">(켜진 지 오래됨 · 신규 진입 우위 낮음)</span></h3>' + ongoing.map(row).join('');
     if (over.length) html += '<h3>과열</h3>' + over.map(row).join('');
     if (none.length) html += '<h3>신호 없음</h3>' + none.map(row).join('');
-    var calOn = S.useCal && S.calib && S.calib.res && ['US', 'KR'].filter(function (m) { return S.calib.res[m] && S.calib.res[m].adopted; });
-    html += '<div class="note">' + (calOn && calOn.length ? '자동 보정값 사용 중(' + calOn.map(function (m) { return m === 'US' ? '미국' : '국내'; }).join(', ') + '). ' : '') + '점수는 과거 하락 구간의 겹침 정도를 숫자로 만든 것이며 투자 권유가 아닙니다. 신규/지속 구분은 참고용입니다: 이 앱의 검증에서는 신규 구간이 지속 구간보다 뚜렷하게 좋지 않았습니다(검증 탭 "경과별"). 검증 탭에서 기준선 대비 효과를 확인하세요.</div>';
+    var calOn = S.useCal && S.calib && S.calib.res && ['KR'].filter(function (m) { return S.calib.res[m] && S.calib.res[m].adopted; });
+    html += '<div class="note">' + (calOn && calOn.length ? '자동 보정값 사용 중. ' : '') + '점수는 과거 하락 구간의 겹침 정도를 숫자로 만든 것이며 투자 권유가 아닙니다. 신규/지속 구분은 참고용입니다: 이 앱의 검증에서는 신규 구간이 지속 구간보다 뚜렷하게 좋지 않았습니다(검증 탭 "경과별"). 검증 탭에서 기준선 대비 효과를 확인하세요.</div>';
     return html + foot();
   }
 
@@ -138,7 +137,7 @@
   function regimes() {
     if (S.reg) return S.reg;
     S.reg = {};
-    [['US', '^GSPC'], ['KR', '^KS11']].forEach(function (p) { var d = lastDate(p[1]); if (d && S.mk[p[0]]) S.reg[p[0]] = Regime.analyze(S.ser, S.macro, S.mk, p[0], d); });
+    var d = lastDate('^KS11'); if (d && S.mk.KR) S.reg.KR = Regime.analyze(S.ser, S.mk, d);
     return S.reg;
   }
   function chgBy(sym, days, yieldLike) {
@@ -158,9 +157,9 @@
         return '<div class="chk"><span>' + esc(x.label) + (x.note ? ' <span class="muted">· ' + esc(x.note) + '</span>' : '') + '</span><span class="num">' + (x.score == null ? '<span class="badge hot">확인 불가</span>' : esc(x.text) + ' · ' + (x.score > 0 ? '+' : '') + x.score) + '</span>' + (x.asof ? '<span class="hint" style="grid-column:1/-1">기준 ' + esc(x.asof) + '</span>' : '') + '</div>';
       }).join('');
     }).join('');
-    return '<div class="card"><div class="hint">' + (m === 'US' ? '미국' : '국내') + ' · 기준 ' + r.date + ' 종가</div><div class="reg">' + esc(r.name) + '</div>'
+    return '<div class="card"><div class="hint">국내 · 기준 ' + r.date + ' 종가</div><div class="reg">' + esc(r.name) + '</div>'
       + '<div>신뢰도 <b>' + r.confidence + '</b> · 전환 가능성 <b>' + r.transition + '</b> · 한 달 전 ' + esc(r.prevName) + '</div>'
-      + '<p style="margin:10px 0 6px">현재 ' + (m === 'US' ? '미국' : '한국') + ' 시장은 <b>' + esc(r.name) + '</b>에 있으며, 가장 중요한 근거는 ' + (r.drivers.length ? esc(r.drivers.join(' · ')) : '뚜렷한 근거 없음(지표 대부분이 중립)') + '입니다.</p>'
+      + '<p style="margin:10px 0 6px">현재 한국 시장은 <b>' + esc(r.name) + '</b>에 있으며, 가장 중요한 근거는 ' + (r.drivers.length ? esc(r.drivers.join(' · ')) : '뚜렷한 근거 없음(지표 대부분이 중립)') + '입니다.</p>'
       + '<div class="hint">' + esc(r.hint) + ' (일반론적 설명이며 매매 신호가 아닙니다)</div>'
       + '<div class="tablebox" style="margin-top:10px"><table style="min-width:420px"><thead><tr><th>영역(가중치)</th><th>점수</th><th></th><th>평가</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
       + '<div class="hint">종합 ' + (r.total == null ? '-' : (r.total > 0 ? '+' : '') + r.total.toFixed(2)) + ' · 지표 확보율 ' + Math.round(r.coverage * 100) + '%. 점수만으로 국면을 기계적으로 정하지 않고 유동성·경기 중심 규칙으로 분류했습니다.</div>'
@@ -168,25 +167,23 @@
   }
   function viewMarket() {
     if (!window.Regime) return '<div class="note">국면 모듈을 불러오지 못했습니다.</div>';
-    var mk = S.mkt === 'ALL' ? ['US', 'KR'] : [S.mkt];
-    var html = '<h2>시장 국면 판별</h2><p class="hint">가격과 공개 거시 지표로 계산 가능한 것만 사용합니다. 국면은 판단의 출발점이며 매수 점수에는 반영되지 않습니다.</p>';
-    if (!S.macro || !S.macro.series || !Object.keys(S.macro.series).length) html += '<div class="note">FRED 지표(금융여건·하이일드 스프레드·실질금리·실업수당·실업률)를 아직 받지 못했습니다. 해당 지표는 "확인 불가"로 두고 나머지로 판별해 신뢰도가 낮습니다.</div>';
-    mk.forEach(function (m) { html += regCard(m); });
+    var html = '<h2>시장 국면 판별</h2><p class="hint">가격으로 계산 가능한 지표(국내 지수·섹터와 글로벌 변수)만 사용합니다. 국면은 판단의 출발점이며 매수 점수에는 반영되지 않습니다.</p>';
+    html += regCard('KR');
     // 과거 성과
-    var us = regimes().US;
+    var us = regimes().KR;
     if (us) {
-      if (S.regHist === undefined || S.regHistKey !== (S.macro ? S.macro.updated : 0)) { S.regHist = Regime.history(S.ser, S.macro, S.mk); S.regHistKey = S.macro ? S.macro.updated : 0; }
+      if (S.regHist === undefined) S.regHist = Regime.history(S.ser, S.mk);
       var hs = S.regHist;
       if (hs) {
-        html += '<h2>이 국면, 과거엔?</h2><p class="hint">월말 시점의 미국 국면과 이후 3개월 S&P500 수익(2008~). 월 1회 표본이라 횟수가 적고 3개월이 겹칩니다.</p><div class="tablebox"><table><thead><tr><th>미국 국면</th><th>횟수</th><th>3개월 상승</th><th>평균</th></tr></thead><tbody>';
+        html += '<h2>이 국면, 과거엔?</h2><p class="hint">월말 시점의 국내 국면과 이후 3개월 코스피 수익(2008~). 월 1회 표본이라 횟수가 적고 3개월이 겹칩니다.</p><div class="tablebox"><table><thead><tr><th>국내 국면</th><th>횟수</th><th>3개월 상승</th><th>평균</th></tr></thead><tbody>';
         Object.keys(Regime.NAMES).forEach(function (k) {
           var x = hs.rows[k]; html += '<tr' + (us.id === +k ? ' style="font-weight:700"' : '') + '><td>' + Regime.NAMES[k] + '</td><td class="num">' + x.n + '</td><td class="num">' + (x.n ? (x.up * 100).toFixed(0) + '%' : '-') + '</td><td class="num ' + cls(x.mean) + '">' + (x.n ? pct(x.mean, 1) : '-') + '</td></tr>';
         });
-        html += '<tr><td>전체</td><td class="num">' + hs.all.n + '</td><td class="num">' + (hs.all.n ? (hs.all.up * 100).toFixed(0) + '%' : '-') + '</td><td class="num">' + (hs.all.n ? pct(hs.all.mean, 1) : '-') + '</td></tr></tbody></table></div><div class="hint">국면별 차이가 뚜렷하지 않거나 횟수가 적으면 국면은 상황 설명이지 매매 신호가 아닙니다. 발표 지연을 반영했지만 과거 재현에는 한계가 있습니다.</div>';
+        html += '<tr><td>전체</td><td class="num">' + hs.all.n + '</td><td class="num">' + (hs.all.n ? (hs.all.up * 100).toFixed(0) + '%' : '-') + '</td><td class="num">' + (hs.all.n ? pct(hs.all.mean, 1) : '-') + '</td></tr></tbody></table></div><div class="hint">국면별 차이가 뚜렷하지 않거나 횟수가 적으면 국면은 상황 설명이지 매매 신호가 아닙니다. 과거 재현에는 한계가 있습니다.</div>';
       }
     }
     // 주요 시장 데이터
-    var items = [['코스피', '^KS11'], ['코스닥', '^KQ11'], ['S&P500', '^GSPC'], ['나스닥100(QQQ)', 'QQQ'], ['러셀2000(IWM)', 'IWM'], ['필라델피아 반도체', '^SOX'], ['VIX', '^VIX'], ['미 10년물 금리', '^TNX', 1], ['미 5년물 금리', '^FVX', 1], ['미 3개월물 금리', '^IRX', 1], ['달러인덱스', 'DX-Y.NYB'], ['원/달러', 'KRW=X'], ['WTI 원유', 'CL=F'], ['금', 'GC=F'], ['구리', 'HG=F']];
+    var items = [['코스피', '^KS11'], ['코스닥', '^KQ11'], ['필라델피아 반도체', '^SOX'], ['VIX', '^VIX'], ['미 10년물 금리', '^TNX', 1], ['미 5년물 금리', '^FVX', 1], ['미 3개월물 금리', '^IRX', 1], ['달러인덱스', 'DX-Y.NYB'], ['원/달러', 'KRW=X'], ['WTI 원유', 'CL=F'], ['금', 'GC=F'], ['구리', 'HG=F']];
     html += '<h2>주요 시장 데이터</h2><p class="hint">출처 Yahoo Finance(지연·오차 가능). 금리는 %p 변화.</p><div class="tablebox"><table style="min-width:520px"><thead><tr><th>지표</th><th>현재</th><th>1일</th><th>1개월</th><th>3개월</th></tr></thead><tbody>';
     items.forEach(function (it) {
       var s = S.ser[it[1]]; if (!s) return; var yl = !!it[2], v = s.c[s.c.length - 1];
@@ -194,14 +191,6 @@
       html += '<tr><td>' + it[0] + ' <span class="muted">' + s.d[s.d.length - 1].slice(5) + '</span></td><td class="num">' + v.toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '</td>' + cell(1) + cell(30) + cell(91) + '</tr>';
     });
     html += '</tbody></table></div>';
-    if (S.macro && S.macro.series) {
-      html += '<div class="hint">거시 지표(FRED)</div><div class="tablebox"><table style="min-width:520px"><thead><tr><th>지표</th><th>현재</th><th>기준일</th><th>3개월 전 대비</th></tr></thead><tbody>';
-      Object.keys(S.macro.series).forEach(function (id) {
-        var m = S.macro.series[id], n = m.d.length - 1, j = n; var lim = new Date(Date.UTC(+m.d[n].slice(0, 4), +m.d[n].slice(5, 7) - 1, +m.d[n].slice(8, 10)) - 91 * 86400000).toISOString().slice(0, 10); while (j > 0 && m.d[j] > lim) j--;
-        html += '<tr><td>' + esc(m.name) + '</td><td class="num">' + m.v[n].toLocaleString('ko-KR', { maximumFractionDigits: 2 }) + '</td><td class="num">' + m.d[n] + '</td><td class="num">' + (m.d[j] <= lim ? (m.v[n] - m.v[j] > 0 ? '+' : '') + (m.v[n] - m.v[j]).toFixed(2) : '-') + '</td></tr>';
-      });
-      html += '</tbody></table></div>';
-    }
     return html + '<div class="note">경제 일정, AI 해설, PMI·기업이익·외국인 수급 같은 항목은 자동 수집이 어려워 포함하지 않았습니다. 투자 권유가 아닙니다.</div>' + foot();
   }
 
@@ -272,9 +261,9 @@
     wk.onerror = function () { S.btBusy = false; wk.terminate(); S.bt = { error: true }; render(); };
     wk.postMessage({ universe: S.uni, series: S.ser, fund: S.fund, lens: S.lens, costs: costs() });
   }
-  var COST_KEY = 'trader-cost-v1', COST_DEF = { usFee: 0.1, krFee: 0.015, krTax: 0.15 };
+  var COST_KEY = 'trader-cost-v1', COST_DEF = { krFee: 0.015, krTax: 0.15 };
   function loadCost() { try { return Object.assign({}, COST_DEF, JSON.parse(lsGet(COST_KEY) || '{}')); } catch (e) { return Object.assign({}, COST_DEF); } }
-  function costs() { var c = loadCost(); return { US: { fee: Number(c.usFee) || 0, tax: 0 }, KR: { fee: Number(c.krFee) || 0, tax: Number(c.krTax) || 0 } }; }
+  function costs() { var c = loadCost(); return { KR: { fee: Number(c.krFee) || 0, tax: Number(c.krTax) || 0 } }; }
   function bindCost() {
     var v = $('#view'); v.oninput = function (e) {
       var t = e.target; if (!t.getAttribute('data-cost')) return;
@@ -285,7 +274,6 @@
   function costForm() {
     var c = loadCost();
     return '<div class="card"><b>거래 비용 설정</b> <span class="muted">(% 단위, 편도)</span><div class="form" style="margin-top:8px">'
-      + '<div><label for="usFee">미국 수수료(%)</label><input id="usFee" data-cost="usFee" type="number" step="0.001" inputmode="decimal" value="' + esc(c.usFee) + '"></div>'
       + '<div><label for="krFee">국내 수수료(%)</label><input id="krFee" data-cost="krFee" type="number" step="0.001" inputmode="decimal" value="' + esc(c.krFee) + '"></div>'
       + '<div><label for="krTax">국내 개별주 매도 거래세(%)</label><input id="krTax" data-cost="krTax" type="number" step="0.01" inputmode="decimal" value="' + esc(c.krTax) + '"></div></div>'
       + '<div class="hint" id="costHint" style="margin-top:6px">기본값은 가정입니다. 증권사 수수료와 최신 거래세율을 확인해 바꾸세요. 국내 ETF는 거래세가 면제라 적용하지 않습니다.</div></div>';
@@ -304,8 +292,8 @@
     if (S.calibBusy) return h + '<div class="card">계산 중입니다…</div>';
     if (!S.calib || S.calib.error || !S.calib.res) return h + (S.calib && S.calib.error ? '<div class="note">보정을 실행하지 못했습니다.</div>' : '') + '<button id="calRun" type="button">자동 보정 실행</button>';
     function pr(x) { return x.n + '건 · 초과 ' + (x.excess >= 0 ? '+' : '') + (x.excess * 100).toFixed(1) + '%p · z ' + x.z.toFixed(1); }
-    ['US', 'KR'].forEach(function (m) {
-      var r = S.calib.res[m]; h += '<h3>' + (m === 'US' ? '미국' : '국내') + ' <span class="badge ' + (r.adopted ? 't1' : '') + '">' + (r.adopted ? '채택' : '기본값 유지') + '</span></h3>';
+    ['KR'].forEach(function (m) {
+      var r = S.calib.res[m]; h += '<h3>국내 <span class="badge ' + (r.adopted ? 't1' : '') + '">' + (r.adopted ? '채택' : '기본값 유지') + '</span></h3>';
       h += '<div class="tablebox"><table style="min-width:520px"><thead><tr><th>신호</th><th>학습 z</th><th>가중치 기본 → 보정</th></tr></thead><tbody>';
       Object.keys(KLAB).forEach(function (k) { h += '<tr><td>' + KLAB[k] + '</td><td class="num">' + r.z[k].toFixed(1) + '</td><td class="num">' + r.def.w[k] + ' → ' + r.shrunk.w[k].toFixed(0) + '</td></tr>'; });
       h += '</tbody></table></div><div class="hint">임계값 기본 ' + r.def.th.join('/') + ' · 학습 최적 ' + r.cal.th.join('/') + ' · 수축 후 ' + r.shrunk.th.join('/') + '</div>';
@@ -314,7 +302,7 @@
       h += '</tbody></table></div>';
       h += '<div class="hint">' + (r.adopted ? '검증 구간 초과수익이 기본값보다 크고 0보다 커서 채택했습니다.' : '검증 구간에서 기본값보다 낫지 않거나 초과수익이 0 이하여서 기본값을 유지합니다.') + '</div>';
     });
-    var adoptedAny = ['US', 'KR'].some(function (m) { return S.calib.res[m] && S.calib.res[m].adopted; });
+    var adoptedAny = ['KR'].some(function (m) { return S.calib.res[m] && S.calib.res[m].adopted; });
     h += '<div class="card"><label style="display:flex;gap:10px;align-items:center;font-size:14px;color:var(--ink);margin:0"><input id="useCal" type="checkbox" style="width:24px;min-height:24px"' + (S.useCal ? ' checked' : '') + (adoptedAny ? '' : ' disabled') + '> 채택된 시장에 보정값 사용</label><div class="hint" style="margin-top:6px">' + (adoptedAny ? '켜면 오늘·종목 탭의 웅덩이 점수가 보정값으로 계산됩니다.' : '채택된 시장이 없어 켤 수 없습니다.') + '</div></div>';
     return h + '<div class="note">⚠ 검증 구간이 하나뿐이고 이벤트 수가 적어서, 채택은 "기본값보다 우연히 나았을 수 있는 정도"로 읽으세요. 시간이 지나 데이터가 쌓이면 다시 실행하세요.</div><button id="calRun" type="button">다시 보정</button>';
   }
@@ -334,10 +322,10 @@
     if (S.edgeBusy) return h + '<div class="card">계산 중입니다…</div>';
     if (!S.edge) return h + '<button id="edgeRun" type="button">신호별 효과 점검 실행</button>';
     if (S.edge.error) return h + '<div class="note">점검을 실행하지 못했습니다.</div><button id="edgeRun" type="button">다시 실행</button>';
-    var mks = S.mkt === 'ALL' ? ['US', 'KR'] : [S.mkt];
+    var mks = ['KR'];
     function sgn(v) { return v == null ? '-' : (v > 0 ? '+' : '') + (v * 100).toFixed(1); }
     mks.forEach(function (m) {
-      var r = S.edge.res[m]; h += '<h3>' + (m === 'US' ? '미국' : '국내') + '</h3>';
+      var r = S.edge.res[m]; h += '<h3>국내</h3>';
       if (!r || r.error) { h += '<div class="note">데이터 없음</div>'; return; }
       [['neutral', '중립 유니버스(ETF) ' + r.nNeutral + '종목'], ['all', '전체 ' + r.nAll + '종목']].forEach(function (p) {
         var rows = (r[p[0]] || []).filter(function (x) { return !x.thin && x.key !== 'p_tier'; }).sort(function (a, b) { return b.z - a.z; });
@@ -358,7 +346,7 @@
     html += costForm();
     if (S.btBusy) return html + '<div class="card">계산 중입니다…</div>';
     if (!S.bt || S.bt.error) return html + '<div class="note">검증을 실행하지 못했습니다.</div><button class="primary" id="rerun" type="button">다시 실행</button>';
-    var mks = S.mkt === 'ALL' ? ['US', 'KR'] : [S.mkt];
+    var mks = ['KR'];
     function setHtml(r, title) {
       if (!r) return '<h3 style="font-size:14px">' + title + '</h3><div class="hint">대상 종목이 없습니다.</div>';
       var h = '<h3 style="font-size:14px">' + title + ' <span class="muted">' + r.symbols.length + '종목</span></h3><div class="hint">' + esc(r.symbols.join(', ')) + '</div><div class="tablebox"><table><thead><tr><th>60일 후</th><th>표본</th><th>상승 확률</th><th>평균 수익</th><th>기준선</th><th>차이</th><th>표본 외</th><th>최대낙폭</th></tr></thead><tbody>';
@@ -392,7 +380,7 @@
       return h;
     }
     mks.forEach(function (m) {
-      var r = S.bt.res[m]; html += '<h2>' + (m === 'US' ? '미국' : '국내') + '</h2>';
+      var r = S.bt.res[m]; html += '<h2>국내</h2>';
       if (!r || r.error) { html += '<div class="note">' + esc(r ? r.error : '데이터 없음') + '</div>'; return; }
       html += setHtml(r.neutral, '중립 유니버스 (지수·섹터 ETF만)') + setHtml(r.all, '전체 종목 (ETF + 개별주 + 레버리지)');
     });
@@ -405,7 +393,6 @@
   function viewAcct() {
     var a = loadAcct(), html = '<h2>내 계좌</h2><p class="hint">입력은 이 기기의 브라우저에만 저장됩니다. 서버로 보내지 않습니다.</p><div class="card"><div class="form">'
       + '<div><label for="cashKRW">현금(원)</label><input id="cashKRW" type="number" inputmode="numeric" value="' + esc(a.cashKRW) + '"></div>'
-      + '<div><label for="cashUSD">현금(달러)</label><input id="cashUSD" type="number" inputmode="decimal" value="' + esc(a.cashUSD) + '"></div>'
       + '<div><label for="keep">최소 유지 현금 비율(%)</label><input id="keep" type="number" inputmode="numeric" value="' + esc(a.keep) + '"></div>'
       + '<div><label for="limit">단일 종목 한도(총자산 대비 %)</label><input id="limit" type="number" inputmode="numeric" value="' + esc(a.limit) + '"></div></div></div>'
       + '<h3>보유 수량</h3><div class="card"><div class="form">'
@@ -424,8 +411,8 @@
   function calcAcct() {
     var out = $('#acctOut'); if (!out) return;
     var a = loadAcct(), keep = (Number(a.keep) || 0) / 100, lim = (Number(a.limit) || 100) / 100, html = '', any = false, ongoingN = 0;
-    var cash = { KRW: Number(a.cashKRW) || 0, USD: Number(a.cashUSD) || 0 };
-    ['KRW', 'USD'].forEach(function (cur) {
+    var cash = { KRW: Number(a.cashKRW) || 0 };
+    ['KRW'].forEach(function (cur) {
       var held = 0;
       S.uni.watch.forEach(function (w) { if (S.ser[w.sym] && S.uni.markets[w.market].currency === cur) held += (Number(a.hold[w.sym]) || 0) * last(w.sym).raw; });
       var total = cash[cur] + held, avail = cash[cur] * (1 - keep);

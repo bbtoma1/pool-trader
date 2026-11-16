@@ -4,7 +4,7 @@
  */
 (function (root) {
   'use strict';
-  var E = { VERSION: 6 };
+  var E = { VERSION: 7 };
 
   /* ---------- 지표 ---------- */
   function sma(c, n) {
@@ -98,7 +98,7 @@
   }
 
   /* ---------- 시장 컨텍스트 ---------- */
-  // 시장별로 분리: US 는 VIX(+VIX3M), KR 는 지수의 20일 실현변동성(연환산) 백분위. 시장 폭·자체 공포지수는 두 시장 공통 방식.
+  // 국내 시장: 지수(코스피)의 20일 실현변동성(연환산) 백분위, 섹터 ETF 시장 폭, 자체 공포지수. (volType 'vix' 는 지금 쓰지 않지만 남겨 둠)
   function lastKnown(idxDates, s) { // 지수 날짜에 맞춰 직전 값으로 정렬
     var out = new Array(idxDates.length).fill(null), p = -1;
     for (var i = 0; i < idxDates.length; i++) {
@@ -198,9 +198,9 @@
     return 0;
   }
   // 가중치 합계 100. 시장에 데이터가 없는 신호(na)는 점수 계산에서 빼고 나머지로 정규화한다.
-  var W = { dd: 16, dev: 7, wrsi: 10, rsi: 4, macd: 6, vol: 15, idx: 8, brd: 10, fear: 8, term: 6, sea: 3, w200: 4, brk: 3 };
+  var W = { dd: 18, dev: 8, wrsi: 11, rsi: 4, macd: 7, vol: 16, idx: 9, brd: 11, fear: 9, w200: 4, brk: 3 };
   E.WEIGHTS = W;
-  E.KEYS = ['dd', 'dev', 'wrsi', 'rsi', 'macd', 'vol', 'idx', 'brd', 'fear', 'term', 'sea', 'w200', 'brk'];
+  E.KEYS = ['dd', 'dev', 'wrsi', 'rsi', 'macd', 'vol', 'idx', 'brd', 'fear', 'w200', 'brk'];
 
   E.signalsAt = function (P, i, mk, lev, weights) {
     var w = weights || W, s = P.s, c = s.c[i], L = Math.max(1, lev || 1), out = [];
@@ -228,15 +228,10 @@
     }
     var idd = m ? m.dd : 0;
     add('idx', '시장 지수 낙폭', step(idd, [[.2, 1], [.1, .5]]), (idd * 100).toFixed(1) + '%');
-    var us = mk.kind === 'vix';
     var bd = m ? m.brd : null;
     add('brd', '시장 폭(섹터 ETF 중 52주 고점 -10%↓ 비율)', bd == null ? 0 : step(bd, [[.5, 1], [.3, .6], [.2, .3]]), bd == null ? '데이터 없음' : (bd * 100).toFixed(0) + '%', bd == null);
     var fr = m ? m.fear : null;
     add('fear', '자체 공포지수(0~100, 높을수록 공포)', fr == null ? 0 : step(fr, [[75, 1], [60, .5]]), fr == null ? '이력 부족' : fr.toFixed(0), fr == null);
-    var tm = m ? m.term : null;
-    add('term', 'VIX 기간구조 역전(VIX/VIX3M)', tm == null ? 0 : step(tm, [[1, 1], [.95, .5]]), tm == null ? (us ? '데이터 없음' : '국내 미적용') : tm.toFixed(2), tm == null);
-    var dt = s.d[i], yy = +dt.slice(0, 4), mo = +dt.slice(5, 7), mid = (yy % 4 === 2 && mo >= 10) || (yy % 4 === 3 && mo <= 6);
-    add('sea', '계절성(미국 중간선거 4분기~이듬해 상반기)', us && mid ? 1 : 0, us ? (mid ? '해당 구간' : '해당 없음') : '국내 미적용', !us);
     var w2 = P.w200 ? P.w200[i] : null, d2 = w2 ? c / w2 - 1 : null;
     add('w200', '200주선 근접(±10% 이내 1, ±20% 이내 0.5)', d2 == null ? 0 : Math.abs(d2) <= .1 ? 1 : Math.abs(d2) <= .2 ? .5 : 0, d2 == null ? '이력 부족(약 4년 필요)' : (d2 * 100).toFixed(1) + '%', d2 == null);
     var hi15 = -Infinity; for (var q = Math.max(0, i - 15); q < i; q++) if (s.c[q] > hi15) hi15 = s.c[q];

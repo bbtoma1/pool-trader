@@ -12,8 +12,7 @@ on:
         default: false
   schedule:
     - cron: "*/10 0-6 * * 1-5"    # 국내 장중 (KST 09:00~15:59)
-    - cron: "*/15 13-21 * * 1-5"  # 미국 장중 (서머타임 여부와 무관하게 넓게 잡음)
-    - cron: "30 22 * * 1-5"       # 평일 장 마감 후 1회
+    - cron: "30 22 * * 1-5"       # 평일 한국 장 마감 후 1회(미국 마감 반영은 다음 날 아침 실행에서)
     - cron: "0 23 * * 0"          # 일요일: 적정가 갱신
 
 permissions:
@@ -45,10 +44,6 @@ jobs:
 
       - name: 시세 갱신
         run: python tools/update_data.py
-
-      - name: 거시 지표 갱신 (FRED, 접근이 막혀도 기존 값 유지)
-        continue-on-error: true
-        run: python tools/update_macro.py
 
       - name: 국내 적정가 갱신 (일요일 또는 수동 실행 때만)
         if: ${{ github.event.schedule == '0 23 * * 0' || inputs.fund == true }}
